@@ -5,12 +5,14 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from model.model import DC_GAN
+from model.model import Text_encoder
 from model.loss import gan_loss
 # from model.metric import accuracy
 from data_loader import CocoDataLoader, CubDataLoader
 from trainer import Trainer
 from logger import Logger
 from tensorboardX import SummaryWriter
+import torch.multiprocessing as mp
 
 logging.basicConfig(level=logging.INFO, format='')
 writer = SummaryWriter('saved/runs')
@@ -47,12 +49,12 @@ parser.add_argument('--no-cuda', action="store_true",
 
 def main(args):
     device = torch.device('cuda:0' if torch.cuda.is_available() and not args.no_cuda else 'cpu')
+    # mp.set_start_method('spawn')
     # Model
     # G = DC_Generator(100, n_size=2)
     # D = DC_Discriminator(100, n_size=2)
     model = DC_GAN(100, 3, n_size=4)
     # model = (G, D)
-    
     # print('generator: \n', G)
     # print('discriminator: \n', D)
     model.summary()
@@ -67,7 +69,7 @@ def main(args):
     d_optimizer = optim.Adam(model.D.parameters(), lr=args.lr, weight_decay=args.wd, amsgrad=True, betas=(0.5, 0.999))
 
     # Data loader and validation split
-    data_loader = CubDataLoader('../data/birds', args.batch_size, args.valid_batch_size, args.validation_split, args.validation_fold, shuffle=True, num_workers=4)
+    data_loader = CubDataLoader('../data/birds', args.batch_size, args.valid_batch_size, args.validation_split, args.validation_fold, shuffle=True, num_workers=0)
     # data_loader = CocoDataLoader('../cocoapi', args.batch_size, args.valid_batch_size, args.validation_split, args.validation_fold, shuffle=True, num_workers=4)
     valid_data_loader = data_loader.get_valid_loader()
 

@@ -3,8 +3,10 @@ import torch
 import numpy as np
 from torchvision import datasets, transforms
 from base import BaseDataLoader
+from torch.nn.utils.rnn import pack_sequence
 
 from datasets import *
+
 
 
 class SVHNDataLoader(BaseDataLoader):
@@ -48,18 +50,19 @@ class CocoDataLoader(BaseDataLoader):
         data = torch.cat([d.unsqueeze(0) for d, t in list_inputs])
         target = torch.zeros((data.shape[0], ), dtype=torch.long)
         #TODO: implement target packing
+
         return data, target
 
 
 class CubDataLoader(BaseDataLoader):
-    def __init__(self, data_dir, batch_size, valid_batch_size=1000, validation_split=0.0, validation_fold=0, shuffle=False, num_workers=4):
+    def __init__(self, data_dir, batch_size, valid_batch_size=1000, validation_split=0.0, validation_fold=0, shuffle=False, num_workers=0):
         
         self.batch_size = batch_size
         self.valid_batch_size = valid_batch_size
             
         trsfm = transforms.Compose([
             transforms.CenterCrop(256),
-            transforms.Resize(64),
+            # transforms.Resize(64),
             transforms.ToTensor(),
             # Normalization that every pytorch pretrained models expect
             transforms.Normalize(mean=[0.485, 0.456, 0.406],
@@ -71,16 +74,19 @@ class CubDataLoader(BaseDataLoader):
 
     def _collate(self, list_inputs):
         data = torch.cat([d.unsqueeze(0) for d, t in list_inputs])
-        target = torch.zeros((data.shape[0], ), dtype=torch.long)
         #TODO: implement target packing
+        order = np.argsort([t.shape[0] for d, t in list_inputs])
+        list_sorted = [list_inputs[i][1] for i in order[::-1]]
+        target = pack_sequence(list_sorted)
         return data, target
 
 
 if __name__ == '__main__':
     # coco_loader = CocoDataLoader('../cocoapi', 4)
-    cub_loader = CubDataLoader('../data/birds', 4)
+    cub_loader = CubDataLoader('../../data/birds', 4)
     
     for i, (data, target) in enumerate(cub_loader):
         print(data.shape)
-        print(target)
+        print(i, target)
+        # padded = pad_packed_sequence(target)
         break

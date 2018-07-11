@@ -4,7 +4,8 @@ from base import BaseModel
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
+from data_loader import CocoDataLoader, CubDataLoader
 
 class DC_Generator(BaseModel):
 
@@ -61,21 +62,33 @@ class DC_GAN(BaseModel):
     def forward(self, z, x_real):
         x_fake = self.G(z)
         data_pair = torch.cat([x_real, x_fake], dim=0)
-        
         score = self.D(data_pair)
-
         return score, x_fake
 
+class Text_encoder(BaseModel):
+    def __init__(self, vocab_size, embedding_size, hidden_size, num_layer, dropout):
+        super(Text_encoder, self).__init__()
+        self.embedding_size = embedding_size
+        self.hidden_size = hidden_size
+        self.embedding = nn.Embedding(vocab_size, embedding_size, padding_idx=None)
+        self.bi_lstm = nn.LSTM(embedding_size, hidden_size, num_layers=num_layer, dropout=dropout, bidirectional=True)
 
+    def forward(self, x):
+        x, len = pad_packed_sequence(x)
+        x = x.squeeze()
+        embedded = self.embedding(x.cpu())
+        embedded = pack_padded_sequence(embedded, len)
+        output, _ = self.bi_lstm(embedded)
+        output, _ = pad_packed_sequence(output)
+        # encoded = torch.cat((output[:, :,:self.hidden_size], output[:, :,self.hidden_size :]),2)
+        return output
 
 if __name__ == '__main__':
-    z = torch.randn(100).view(1, 100, 1, 1)
-
-    G = DC_Generator(100, n_size=2)
-    D = DC_Discriminator(n_size=2)
-
-    x = G(z)
-    out = D(x)
-
-    print(x.shape)
-    print(out.shape)
+    data_loader = CubDataLoader('../../data/birds', 4)
+    model = Text_encoder(4800, 100, 100, 2, 0.3)
+    for batch_idx, (data, target) in enumerate(data_loader):
+        output = model(target)
+        print(output.shape, output)
+        break
+    # print(x.shape)
+    # print(out.shape)
