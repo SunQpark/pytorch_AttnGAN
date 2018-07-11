@@ -74,10 +74,10 @@ class Text_encoder(BaseModel):
         self.bi_lstm = nn.LSTM(embedding_size, hidden_size, num_layers=num_layer, dropout=dropout, bidirectional=True)
 
     def forward(self, x):
-        x, len = pad_packed_sequence(x)
+        x, lengths = pad_packed_sequence(x)
         x = x.squeeze()
         embedded = self.embedding(x.cpu())
-        embedded = pack_padded_sequence(embedded, len)
+        embedded = pack_padded_sequence(embedded, lengths)
         output, _ = self.bi_lstm(embedded)
         output, _ = pad_packed_sequence(output)
         # encoded = torch.cat((output[:, :,:self.hidden_size], output[:, :,self.hidden_size :]),2)
