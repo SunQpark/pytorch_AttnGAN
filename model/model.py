@@ -83,12 +83,46 @@ class Text_encoder(BaseModel):
         # encoded = torch.cat((output[:, :,:self.hidden_size], output[:, :,self.hidden_size :]),2)
         return output
 
+
+class F_attn(BaseModel):
+    def __init__(self, h_dim, e_dim, h_dim_2, e_dim_2):
+        super(F_attn, self).__init__()
+        self.softmax = nn.Softmax(dim=1)
+        self.linear = nn.Linear(h_dim, e_dim)
+        self.h_dim_2 = h_dim_2
+        self.e_dim_2 = e_dim_2
+        self.h_dim = h_dim
+
+    def forward(self, e, h):
+        e_p = self.linear(e)
+        e_p = torch.transpose(e_p,1,2)
+        h = torch.transpose(h,1,2)
+        s = torch.bmm(h, e_p)
+        beta = self.softmax(s)
+        c = Variable(torch.zeros(10, self.h_dim, self.h_dim_2))
+        for n in range(self.h_dim_2):
+            for k in range(self.e_dim_2):
+                c[:,:, n] = torch.mul(e_p[:,:, k], beta[:,n, k])
+        return c
+
 if __name__ == '__main__':
-    data_loader = CubDataLoader('../../data/birds', 4)
-    model = Text_encoder(4800, 100, 100, 2, 0.3)
-    for batch_idx, (data, target) in enumerate(data_loader):
-        output = model(target)
-        print(output.shape, output)
-        break
-    # print(x.shape)
-    # print(out.shape)
+    #test F_attn
+    model = F_attn(10, 10, 5, 5)
+    model.cuda()
+    e = torch.randn((10,5,10), device='cuda')
+    h = torch.randn((10,10,5), device='cuda')
+    output = model(e,h)
+    print(output.shape)
+
+    #Test text_encoder
+#     
+#
+# if __name__ == '__main__':
+#     data_loader = CubDataLoader('../../data/birds', 4)
+#     model = Text_encoder(4800, 100, 100, 2, 0.3)
+#     for batch_idx, (data, target) in enumerate(data_loader):
+#         output = model(target)
+#         print(output.shape, output)
+#         break
+#     # print(x.shape)
+#     # print(out.shape)
