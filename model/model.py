@@ -85,13 +85,14 @@ class Text_encoder(BaseModel):
 
 
 class F_attn(BaseModel):
-    def __init__(self, h_dim, e_dim, h_dim_2, e_dim_2):
+    def __init__(self, batch_size, h_dim, e_dim, h_dim_2, e_dim_2):
         super(F_attn, self).__init__()
         self.softmax = nn.Softmax(dim=1)
         self.linear = nn.Linear(h_dim, e_dim)
         self.h_dim_2 = h_dim_2
         self.e_dim_2 = e_dim_2
         self.h_dim = h_dim
+        self.batch_size = batch_size
 
     def forward(self, e, h):
         e_p = self.linear(e)
@@ -99,7 +100,7 @@ class F_attn(BaseModel):
         h = torch.transpose(h,1,2)
         s = torch.bmm(h, e_p)
         beta = self.softmax(s)
-        c = Variable(torch.zeros(10, self.h_dim, self.h_dim_2))
+        c = torch.zeros(self.batch_size, self.h_dim, self.h_dim_2)
         for n in range(self.h_dim_2):
             for k in range(self.e_dim_2):
                 c[:,:, n] = torch.mul(e_p[:,:, k], beta[:,n, k])
@@ -115,7 +116,7 @@ if __name__ == '__main__':
     print(output.shape)
 
     #Test text_encoder
-#     
+#
 #
 # if __name__ == '__main__':
 #     data_loader = CubDataLoader('../../data/birds', 4)
