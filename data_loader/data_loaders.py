@@ -1,10 +1,12 @@
 import sys, os
 import torch
 import numpy as np
-from torchvision import datasets, transforms
-from base import BaseDataLoader
 from torch.nn.utils.rnn import pack_sequence
+from torchvision import transforms
 
+sys.path.append('./')
+
+from base import BaseDataLoader
 from datasets import *
 
 
@@ -73,17 +75,16 @@ class CubDataLoader(BaseDataLoader):
         super(CubDataLoader, self).__init__(self.dataset, self.batch_size, self.valid_batch_size, shuffle, validation_split, validation_fold, num_workers, collate_fn=self._collate)
 
     def _collate(self, list_inputs):
-        data = torch.cat([d.unsqueeze(0) for d, t in list_inputs])
-        #TODO: implement target packing
         order = np.argsort([t.shape[0] for d, t in list_inputs])
         list_sorted = [list_inputs[i][1] for i in order[::-1]]
+        data = torch.cat([list_inputs[i][0].unsqueeze(0) for i in order[:-1]])
         target = pack_sequence(list_sorted)
         return data, target
 
 
 if __name__ == '__main__':
     # coco_loader = CocoDataLoader('../cocoapi', 4)
-    cub_loader = CubDataLoader('../../data/birds', 4)
+    cub_loader = CubDataLoader('../data/birds', 4)
     
     for i, (data, target) in enumerate(cub_loader):
         print(data.shape)
