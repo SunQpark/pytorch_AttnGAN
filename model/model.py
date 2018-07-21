@@ -7,13 +7,13 @@ import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 from data_loader import CocoDataLoader, CubDataLoader
 
-class DC_Generator(BaseModel):
+class Generator_0(BaseModel):
 
     def __init__(self, n_z, n_c=3, n_size=4):
         '''
         generated image will have shape (batch, n_c, n_size*32, n_size*32) 
         '''
-        super(DC_Generator, self).__init__()
+        super(Generator_0, self).__init__()
         
         self.conv1 = nn.ConvTranspose2d(n_z, 1024, n_size, 1, 0, bias=False)
         self.bn1 = nn.BatchNorm2d(1024)
@@ -52,19 +52,6 @@ class DC_Discriminator(BaseModel):
         x = F.leaky_relu_(self.bn4(self.conv4(x)), 0.2)
         return F.sigmoid(self.conv5(x))
 
-
-class DC_GAN(BaseModel):
-    def __init__(self, n_z, n_c, n_size):
-        super(DC_GAN, self).__init__()
-        self.G = DC_Generator(n_z, n_c, n_size)
-        self.D = DC_Discriminator(n_c, n_size)
-
-    def forward(self, z, x_real):
-        x_fake = self.G(z)
-        data_pair = torch.cat([x_real, x_fake], dim=0)
-        score = self.D(data_pair)
-        return score, x_fake
-
 class Text_encoder(BaseModel):
     def __init__(self, vocab_size, embedding_size, hidden_size, num_layer, dropout):
         super(Text_encoder, self).__init__()
@@ -82,6 +69,22 @@ class Text_encoder(BaseModel):
         output, _ = pad_packed_sequence(output)
         # encoded = torch.cat((output[:, :,:self.hidden_size], output[:, :,self.hidden_size :]),2)
         return output
+
+class F_ca(nn.Module):
+    """ conditioning augmentation of sentence embedding """
+    def __init__(self, embedding_size, latent_size):
+        super(F_ca, self).__init__()
+        self.fc_mu = nn.Linear(embedding_size, latent_size)
+        self.fc_std = nn.Linear(embedding_size, latent_size)
+
+    def forward(self, e_input):
+        mu = self.fc_mu(e_input)
+        if self.training:
+            std = self.fc_std(e_input)
+            eps = torch.randn_like(fc_std)
+            return mu + std * eps
+        else:
+            return mu
 
 
 class F_attn(BaseModel):
