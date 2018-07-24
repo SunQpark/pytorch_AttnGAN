@@ -7,52 +7,37 @@ import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 from data_loader import CocoDataLoader, CubDataLoader
 
-class Generator_0(BaseModel):
 
-    def __init__(self, n_z, n_c=3, n_size=4):
-        '''
-        generated image will have shape (batch, n_c, n_size*32, n_size*32) 
-        '''
-        super(Generator_0, self).__init__()
-        
-        self.conv1 = nn.ConvTranspose2d(n_z, 1024, n_size, 1, 0, bias=False)
-        self.bn1 = nn.BatchNorm2d(1024)
-        self.conv2 = nn.ConvTranspose2d(1024, 512, 4, 2, 1, bias=False)
-        self.bn2 = nn.BatchNorm2d(512)
-        self.conv3 = nn.ConvTranspose2d(512,  256, 4, 2, 1, bias=False)
-        self.bn3 = nn.BatchNorm2d(256)
-        self.conv4 = nn.ConvTranspose2d(256,  128, 4, 2, 1, bias=False)
-        self.bn4 = nn.BatchNorm2d(128)
-        self.conv5 = nn.ConvTranspose2d(128,  n_c, 4, 2, 1, bias=False)
-
-    def forward(self, z):
-        z = F.relu(self.bn1(self.conv1(z)))
-        z = F.relu(self.bn2(self.conv2(z)))
-        z = F.relu(self.bn3(self.conv3(z)))
-        z = F.relu(self.bn4(self.conv4(z)))
-        return F.tanh(self.conv5(z))
-
-class DC_Discriminator(BaseModel):
-    def __init__(self, n_c=3, n_size=4):
-        super(DC_Discriminator, self).__init__()
-        self.conv1 = nn.Conv2d(3, 128, 4, 2, 1, bias=False)
-        self.bn1 = nn.BatchNorm2d(128)
-        self.conv2 = nn.Conv2d(128, 256, 4, 2, 1, bias=False)
-        self.bn2 = nn.BatchNorm2d(256)
-        self.conv3 = nn.Conv2d(256, 512, 4, 2, 1, bias=False)
-        self.bn3 = nn.BatchNorm2d(512)
-        self.conv4 = nn.Conv2d(512, 512, 3, 1, 1, bias=False)
-        self.bn4 = nn.BatchNorm2d(512)
-        self.conv5 = nn.Conv2d(512, 1, 1, 1, 0, bias=False)
+class UpsampleBlock(nn.Module):
+    def __init__(self, in_ch, out_ch):
+        super(UpsampleBlock, self).__init__()
+        self.conv = nn.Conv2d(in_ch, out_ch, 3, 1, 1)
+        self.bn = nn.BatchNorm2d(out_ch)
+        self.relu = nn.ReLU(inplace=True)
 
     def forward(self, x):
-        x = F.leaky_relu_(self.bn1(self.conv1(x)), 0.2)
-        x = F.leaky_relu_(self.bn2(self.conv2(x)), 0.2)
-        x = F.leaky_relu_(self.bn3(self.conv3(x)), 0.2)
-        x = F.leaky_relu_(self.bn4(self.conv4(x)), 0.2)
-        return F.sigmoid(self.conv5(x))
+        x = F.upsample(self.relu(self.bn(self.conv(x))), scale_factor=2)
+        return x
 
-class Text_encoder(BaseModel):
+
+class ResidualBlock(nn.Module):
+    def __init__(self, in_ch, ch, stride=1):
+        super(BasicBlock, self).__init__()
+        self.conv1 = nn.Conv2d(in_ch, ch, 3, stride, 1, bias=False)
+        self.bn1 = nn.BatchNorm2d(ch)
+        self.relu = nn.ReLU(inplace=True)
+
+        self.conv2 = nn.Conv2d(ch, ch, 3, 1, 1, bias=False)
+        self.bn2 = nn.BatchNorm2d(ch)
+
+    def forward(self, x_input):
+        residual = x_input
+        x = self.relu(self.bn1(self.conv1(x_input)))
+        x = self.bn2(self.conv2(x))
+        return x + residual
+
+
+class Text_encoder(nn.Module):
     def __init__(self, vocab_size, embedding_size, hidden_size, num_layer, dropout):
         super(Text_encoder, self).__init__()
         self.embedding_size = embedding_size
@@ -70,6 +55,7 @@ class Text_encoder(BaseModel):
         # encoded = torch.cat((output[:, :,:self.hidden_size], output[:, :,self.hidden_size :]),2)
         return output
 
+
 class F_ca(nn.Module):
     """ conditioning augmentation of sentence embedding """
     def __init__(self, embedding_size, latent_size):
@@ -85,6 +71,38 @@ class F_ca(nn.Module):
             return mu + std * eps
         else:
             return mu
+
+
+class F_0(nn.Module):
+    def __init__(self, latent_size, n_g=32):
+        super(F_0, self).__init__()
+        self.fc = nn.Linear(latent_size, 4 * 4 * 64 * n_g)
+        self.upsample_blocks = nn.Sequential(
+            UpsampleBlock(64 * n_g, 32 * n_g),
+            UpsampleBlock(32 * n_g, 16 * n_g),
+            UpsampleBlock(16 * n_g,  8 * n_g),
+            UpsampleBlock( 8 * n_g,  4 * n_g),
+        )
+        self.G_0 = nn.Conv2d(4 * n_g, 3, 3, 1, 1)
+
+    def forward(self, z):
+        z = self.fc(z).view(-1, 64*self.n_g, 4, 4)
+        h_0 = self.upsample_blocks(z)
+
+        # generator block
+        output = (F.tanh(self.G_0(h_0)) + 1) / 2
+        return h_0, output
+
+
+class F_1(nn.Module):
+    def __init__(self, in_ch, n_g=32):
+        super(F_1, self).__init__()
+        self.res1 = ResidualBlock(in_ch,   4 * n_g)
+        self.res2 = ResidualBlock(4 * n_g, 4 * n_g)
+        self.upsample = UpsampleBlock(4 * n_g, 8 * n_g)
+
+    def forward(self, h_0, c):
+        pass
 
 
 class F_attn(BaseModel):
@@ -108,6 +126,15 @@ class F_attn(BaseModel):
             for k in range(self.e_dim_2):
                 c[:,:, n] = torch.mul(e_p[:,:, k], beta[:,n, k])
         return c
+
+
+class AttnGAN(BaseModel):
+    def __init__(self, parameter_list):
+        super(AttnGAN, self).__init__()
+
+    def forward(self, parameter_list):
+        pass
+
 
 if __name__ == '__main__':
     #test F_attn
