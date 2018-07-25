@@ -113,20 +113,19 @@ class F_1(nn.Module):
         return h, x
 
 
-class F_attn(BaseModel):
+class F_attn(nn.Module):
     def __init__(self, e_dim, h_dim):
         super(F_attn, self).__init__()
         self.linear = nn.Linear(e_dim, h_dim)
-        
 
     def forward(self, e, h):
         e = self.linear(e) # (b, l, f)
         e = e.transpose(1, 2) # (b, f, l)
 
         batch, ch, width, height = h.shape
-        h = h.view(batch, ch, -1) # (b, f, n), flatten img features by subregions
+        h = h.view(batch, ch, -1) # (b, f, n), flatten img features by subregions, n = wid * hei
         s = torch.bmm(e.transpose(1, 2), h)
-        beta = F.softmax(s, dim=1) # (b, l, n)
+        beta = F.softmax(s, dim=1) # (b, l, n), attention along word embeddings
         
         # e:(b, f, 1, l) * beta:(b, 1, n, l) 
         c = torch.sum(e.unsqueeze(2) * beta.transpose(1, 2).unsqueeze(1), dim=3)
@@ -148,12 +147,22 @@ if __name__ == '__main__':
     seq_length = 32
     seq_features = 20
     img_channels = 16
+
     model = F_attn(seq_features, img_channels)
     model = model.to(device)
+    print(model)
+
     e = torch.randn((batch_size, seq_length, seq_features), device=device)
     h = torch.randn((batch_size, img_channels, 30, 40), device=device)
 
+    print('word embedding e: ')
+    print(e.shape)
+
+    print('hidden features h: ')
+    print(h.shape)
+
     output = model(e, h)
+    print('output shape: ')
     print(output.shape)
 
     #Test text_encoder
