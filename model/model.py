@@ -97,35 +97,40 @@ class F_0(nn.Module):
 class F_1(nn.Module):
     def __init__(self, in_ch, n_g=32):
         super(F_1, self).__init__()
-        self.res1 = ResidualBlock(in_ch,   4 * n_g)
+        self.res1 = ResidualBlock(8 * n_g, 4 * n_g)
         self.res2 = ResidualBlock(4 * n_g, 4 * n_g)
-        self.upsample = UpsampleBlock(4 * n_g, 8 * n_g)
+        self.upsample = UpsampleBlock(4 * n_g, 2 * n_g)
+
+        self.G_1 = nn.Conv2d(2 * n_g, 3, 3, 1, 1)
 
     def forward(self, h_0, c):
-        pass
+        joined = torch.cat([h_0, c], dim=1)
+        h = self.res1(joined)
+        h = self.res2(h)
+        h = self.upsample(h)
+        
+        x = (F.tanh(self.G_1(h)) + 1) / 2
+        return h, x
 
 
 class F_attn(BaseModel):
-    def __init__(self, batch_size, h_dim, e_dim, h_dim_2, e_dim_2):
+    def __init__(self, e_dim, h_dim):
         super(F_attn, self).__init__()
-        self.softmax = nn.Softmax(dim=1)
-        self.linear = nn.Linear(h_dim, e_dim)
-        self.h_dim_2 = h_dim_2
-        self.e_dim_2 = e_dim_2
-        self.h_dim = h_dim
-        self.batch_size = batch_size
+        self.linear = nn.Linear(e_dim, h_dim)
+        
 
     def forward(self, e, h):
-        e_p = self.linear(e)
-        e_p = torch.transpose(e_p,1,2)
-        h = torch.transpose(h,1,2)
-        s = torch.bmm(h, e_p)
-        beta = self.softmax(s)
-        c = torch.zeros(self.batch_size, self.h_dim, self.h_dim_2)
-        for n in range(self.h_dim_2):
-            for k in range(self.e_dim_2):
-                c[:,:, n] = torch.mul(e_p[:,:, k], beta[:,n, k])
-        return c
+        e = self.linear(e) # (b, l, f)
+        e = e.transpose(1, 2) # (b, f, l)
+
+        batch, ch, width, height = h.shape
+        h = h.view(batch, ch, -1) # (b, f, n), flatten img features by subregions
+        s = torch.bmm(e.transpose(1, 2), h)
+        beta = F.softmax(s, dim=1) # (b, l, n)
+        
+        # e:(b, f, 1, l) * beta:(b, 1, n, l) 
+        c = torch.sum(e.unsqueeze(2) * beta.transpose(1, 2).unsqueeze(1), dim=3)
+        return c.view(batch, ch, width, height)
 
 
 class AttnGAN(BaseModel):
@@ -138,16 +143,20 @@ class AttnGAN(BaseModel):
 
 if __name__ == '__main__':
     #test F_attn
-    model = F_attn(10, 10, 5, 5)
-    model.cuda()
-    e = torch.randn((10,5,10), device='cuda')
-    h = torch.randn((10,10,5), device='cuda')
-    output = model(e,h)
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    batch_size = 4
+    seq_length = 32
+    seq_features = 20
+    img_channels = 16
+    model = F_attn(seq_features, img_channels)
+    model = model.to(device)
+    e = torch.randn((batch_size, seq_length, seq_features), device=device)
+    h = torch.randn((batch_size, img_channels, 30, 40), device=device)
+
+    output = model(e, h)
     print(output.shape)
 
     #Test text_encoder
-#
-#
 # if __name__ == '__main__':
 #     data_loader = CubDataLoader('../../data/birds', 4)
 #     model = Text_encoder(4800, 100, 100, 2, 0.3)
