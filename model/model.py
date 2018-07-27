@@ -1,10 +1,10 @@
 import sys
-sys.path.append('./')
-from base import BaseModel
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
+sys.path.append('./')
+from base import BaseModel
 from data_loader import CocoDataLoader, CubDataLoader
 
 
@@ -20,9 +20,27 @@ class UpsampleBlock(nn.Module):
         return x
 
 
+class DownsampleBlock(nn.Module):
+    def __init__(self, in_ch, out_ch, batch_norm=False):
+        super(DownsampleBlock, self).__init__()
+        self.conv = nn.Conv2d(in_ch, out_ch, 4, 2, 1)
+        if batch_norm:
+            self.bn = nn.BatchNorm2d(out_ch)
+        else:
+            self.bn = None
+        self.lrelu = nn.LeakyReLU(inplace=True)
+    
+    def forward(self, x_input):
+        x = self.conv(x_input)
+        if self.bn is not None:
+            x = self.bn(x)
+        x = self.lrelu(x)
+        return x
+
+
 class ResidualBlock(nn.Module):
     def __init__(self, in_ch, ch, stride=1):
-        super(BasicBlock, self).__init__()
+        super(ResidualBlock, self).__init__()
         self.conv1 = nn.Conv2d(in_ch, ch, 3, stride, 1, bias=False)
         self.bn1 = nn.BatchNorm2d(ch)
         self.relu = nn.ReLU(inplace=True)
@@ -52,7 +70,6 @@ class Text_encoder(nn.Module):
         embedded = pack_padded_sequence(embedded, lengths)
         output, _ = self.bi_lstm(embedded)
         output, _ = pad_packed_sequence(output)
-        # encoded = torch.cat((output[:, :,:self.hidden_size], output[:, :,self.hidden_size :]),2)
         return output
 
 
@@ -67,7 +84,7 @@ class F_ca(nn.Module):
         mu = self.fc_mu(e_input)
         if self.training:
             std = self.fc_std(e_input)
-            eps = torch.randn_like(fc_std)
+            eps = torch.randn_like(std)
             return mu + std * eps
         else:
             return mu
@@ -130,6 +147,27 @@ class F_attn(nn.Module):
         # e:(b, f, 1, l) * beta:(b, 1, n, l) 
         c = torch.sum(e.unsqueeze(2) * beta.transpose(1, 2).unsqueeze(1), dim=3)
         return c.view(batch, ch, width, height)
+
+
+class Discriminator(nn.Module):
+    def __init__(self, in_ch, num_downsample=4, embed_size=100, n_d=64):
+        super(Discriminator, self).__init__()
+        self.downsamples = nn.Sequential(*[DownsampleBlock(in_ch*2**i, in_ch*2**(i+1)) for i in range(num_downsample)])
+        self.conv = nn.Conv2d(in_ch*2**num_downsample, 8*n_d, 3, 1, 1)
+        self.fc_cond = nn.Linear(embed_size, n_d)
+        self.conv_cond = nn.Conv2d(9*n_d, 1, 1, 1, 0)
+
+    def forward(self, x_input, condition):
+        x = self.downsamples(x_input)
+        x = self.conv(x)
+        score_uncond = F.sigmoid(x)
+
+        c = self.fc_cond(condition)
+        c = c.expand(c.shape[0], c.shape[1], x.shape[2], x.shape[3])
+
+        concat = torch.cat([x, c], dim=1)
+        score_cond = F.sigmoid(self.conv_cond(concat))
+        return score_uncond, score_cond
 
 
 class AttnGAN(BaseModel):
