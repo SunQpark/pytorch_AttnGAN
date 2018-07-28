@@ -12,6 +12,7 @@ import re
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+
 class CubDataset(Dataset):
     def __init__(self, data_dir, transform=None, train=True):
         
@@ -56,8 +57,7 @@ class CubDataset(Dataset):
 
     def prepare_dict(self):
         text_sent = preprocess_text()
-        for i in range(len(self.fnames)):
-            fname = self.fnames[i]
+        for fname in self.fnames:
             text_path = os.path.join(self.text_dir, f'{fname}.txt')
             captions = open(text_path, encoding='utf-8').read().strip().split('\n')
             s = [text_sent.normalizeString(s) for s in captions]
@@ -72,6 +72,7 @@ class CubDataset(Dataset):
         indexes = self._indexesFromSentence(pre, sentence)
         indexes.append(self.EOS_token)
         return torch.tensor(indexes, dtype=torch.long, device=device).view(-1, 1)
+
 
 class preprocess_text:
     def __init__(self):
@@ -105,6 +106,7 @@ class preprocess_text:
         s = re.sub(r"[^a-zA-Z.!?]+", r" ", s)
         return s
 
+
 class CocoWrapper(datasets.CocoCaptions):
     def __init__(self, data_dir, transform=None, target_transform=None):
         self.data_dir = data_dir
@@ -113,11 +115,17 @@ class CocoWrapper(datasets.CocoCaptions):
         super(CocoWrapper, self).__init__(self.img_dir, self.ann_dir, transform=transform, target_transform=target_transform)
 
     def __getitem__(self, idx):
-        data, target = super(CocoWrapper, self).__getitem__(idx)
-        target = list(target)
+        data, captions = super(CocoWrapper, self).__getitem__(idx)
+        captions = list(captions)
         
-        select_idx = np.random.randint(len(target), size=None)
-        label = target[select_idx].replace('\n', '')
+        select_idx = np.random.randint(len(captions), size=None)
+        label_pre = captions[select_idx].replace('\n', '').replace('.','')
+
+        s = label_pre.lower().strip()
+        s = re.sub(r"([.!?])", r" \1", s)
+        label_pre = re.sub(r"[^a-zA-Z.!?]+", r" ", s)
+        label = self.tensorFromSentence(self.preprocessed, label_pre)
+
         return data, label
 
 
