@@ -4,8 +4,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 sys.path.append('./')
-from base import BaseModel
-from data_loader import CocoDataLoader, CubDataLoader
+# from base import BaseModel
+# from data_loader import CocoDataLoader, CubDataLoader
 
 
 class UpsampleBlock(nn.Module):
@@ -169,39 +169,99 @@ class Discriminator(nn.Module):
         score_cond = F.sigmoid(self.conv_cond(concat))
         return score_uncond, score_cond
 
+class Matching_Score_word(nn.Module):
+    def __init__(self, gamma_1, gamma_2, gamma_3):
+        super(Matching_Score_word, self).__init__()
+        self.cos = nn.CosineSimilarity(dim = 1)
+        self.gamma_1 = gamma_1
+        self.gamma_2 = gamma_2
+        self.gamma_3 = gamma_3
+        
+    def batch_score(self, e, v):
+        s = torch.mm(e.transpose(0,1), v) #(T, 289)
+        s_norm = F.softmax(s, dim=1) #( T, 289) 
+        alpha = F.softmax(self.gamma_1 * s_norm, dim=0)# (T, 289)
+        
+        alpha = torch.unsqueeze(alpha, dim = 1) # (T, 1, 289)
+        v= torch.unsqueeze(v, dim=0) # (1, D, 289)
+        c = torch.sum(alpha * v, dim=2) # (T, D)
+        
+        R = self.cos(c.transpose(0,1), e) #(T)
+        match_score = torch.log(torch.exp(self.gamma_2 * R).sum(dim=0)).pow(1/self.gamma_2) #scalar
+        return match_score
 
-class AttnGAN(BaseModel):
-    def __init__(self, parameter_list):
-        super(AttnGAN, self).__init__()
+    def forward(self, e, v):
+        batch_size = e.shape[0]
+        batch_sum_score_d = torch.zeros(batch_size, device = device)
+        batch_sum_score_q = torch.zeros(batch_size, device = device)
 
-    def forward(self, parameter_list):
-        pass
+        for i in range(batch_size):
+            for j in range(batch_size):
+                batch_sum_score_d[i] += self.batch_score(e[i], v[j])
+                batch_sum_score_q[i] += self.batch_score(e[j], v[i])
+        return batch_sum_score_d, batch_sum_score_q
+
+
+class Matching_Score_sent(nn.Module):
+    def __init__(self, gamma_3):
+        super(Matching_Score_sent, self).__init__()
+        self.cos = nn.CosineSimilarity(dim = 1)
+        self.gamma_3 = gamma_3
+
+    def forward(self, e_global, v_global):
+        batch_size = e_global.shape[0]
+        batch_sum_score_d = torch.zeros(batch_size, device = device)
+        batch_sum_score_q = torch.zeros(batch_size, device = device)
+
+        for i in range(batch_size):
+            for j in range(batch_size):
+                batch_sum_score_d[i] += torch.exp(self.gamma_3 *(self.cos(e_global[i], v_global[j])))
+                batch_sum_score_q[i] += torch.exp(self.gamma_3 *(self.cos(e_global[j], v_global[i])))
+        
+        return batch_sum_score_d, batch_sum_score_q
+
+
+# class AttnGAN(BaseModel):
+#     def __init__(self, parameter_list):
+#         super(AttnGAN, self).__init__()
+
+#     def forward(self, parameter_list):
+#         pass
 
 
 if __name__ == '__main__':
     #test F_attn
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    model = Matching_Score_word(1,1,1)
+    model= model.to(device)
+
     batch_size = 4
     seq_length = 32
     seq_features = 20
-    img_channels = 16
 
-    model = F_attn(seq_features, img_channels)
-    model = model.to(device)
-    print(model)
+    e = torch.randn((batch_size, seq_features,seq_length), device = device)
+    v = torch.randn((batch_size, seq_features, 289), device=device)
+    
+    output1, output2 = model(e,v)
+    print(output1.shape, output2.shape)
+    # img_channels = 16
 
-    e = torch.randn((batch_size, seq_length, seq_features), device=device)
-    h = torch.randn((batch_size, img_channels, 30, 40), device=device)
+    # model = F_attn(seq_features, img_channels)
+    # model = model.to(device)
+    # print(model)
 
-    print('word embedding e: ')
-    print(e.shape)
+    # e = torch.randn((batch_size, seq_length, seq_features), device=device)
+    # h = torch.randn((batch_size, img_channels, 30, 40), device=device)
 
-    print('hidden features h: ')
-    print(h.shape)
+    # print('word embedding e: ')
+    # print(e.shape)
 
-    output = model(e, h)
-    print('output shape: ')
-    print(output.shape)
+    # print('hidden features h: ')
+    # print(h.shape)
+
+    # output = model(e, h)
+    # print('output shape: ')
+    # print(output.shape)
 
     #Test text_encoder
 # if __name__ == '__main__':
