@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
+from torchvision.models import inception_v3
 sys.path.append('./')
 # from base import BaseModel
 # from data_loader import CocoDataLoader, CubDataLoader
@@ -71,6 +72,22 @@ class Text_encoder(nn.Module):
         output, _ = self.bi_lstm(embedded)
         output, _ = pad_packed_sequence(output)
         return output
+
+
+class Image_encoder(nn.Module):
+    def __init__(self):
+        super(Image_encoder, self).__init__()
+        inception = inception_v3(pretrained=True)
+        inception.eval()
+        cut_index = 10 # TODO: find right index for cut
+        self.layers1 = nn.Sequential(*list(inception.children())[:cut_index])
+        self.layers2 = nn.Sequential(*list(inception.children())[cut_index:-1])
+
+    def forward(self, x):
+        x = self.layers1(x)
+        output = self.layers2(x)
+        return x, output
+
 
 
 class F_ca(nn.Module):
@@ -230,20 +247,23 @@ class Matching_Score_sent(nn.Module):
 
 
 if __name__ == '__main__':
-    #test F_attn
+    #Test Image_encoder
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    model = Matching_Score_word(1,1,1)
-    model= model.to(device)
+    model = Image_encoder()
+    print(model.layers1)
+    # #test F_attn
+    # model = Matching_Score_word(1,1,1)
+    # model= model.to(device)
 
-    batch_size = 4
-    seq_length = 32
-    seq_features = 20
+    # batch_size = 4
+    # seq_length = 32
+    # seq_features = 20
 
-    e = torch.randn((batch_size, seq_features,seq_length), device = device)
-    v = torch.randn((batch_size, seq_features, 289), device=device)
+    # e = torch.randn((batch_size, seq_features,seq_length), device = device)
+    # v = torch.randn((batch_size, seq_features, 289), device=device)
     
-    output1, output2 = model(e,v)
-    print(output1.shape, output2.shape)
+    # output1, output2 = model(e,v)
+    # print(output1.shape, output2.shape)
     # img_channels = 16
 
     # model = F_attn(seq_features, img_channels)
@@ -273,3 +293,4 @@ if __name__ == '__main__':
 #         break
 #     # print(x.shape)
 #     # print(out.shape)
+
