@@ -79,15 +79,14 @@ class Image_encoder(nn.Module):
         super(Image_encoder, self).__init__()
         inception = inception_v3(pretrained=True)
         inception.eval()
-        cut_index = 10 # TODO: find right index for cut
-        self.layers1 = nn.Sequential(*list(inception.children())[:cut_index])
-        self.layers2 = nn.Sequential(*list(inception.children())[cut_index:-1])
+        self.layers1 = nn.Sequential(*list(inception.children())[:-5]) # to mixed_6e
+        self.layers2 = nn.Sequential(*list(inception.children())[-4:-1])
 
     def forward(self, x):
-        x = self.layers1(x)
+        x = self.layers1(x) # input size: (80, 80)
         output = self.layers2(x)
+        output = F.adaptive_avg_pool2d(output, 1)
         return x, output
-
 
 
 class F_ca(nn.Module):
@@ -250,7 +249,12 @@ if __name__ == '__main__':
     #Test Image_encoder
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     model = Image_encoder()
-    print(model.layers1)
+
+    dummy = torch.randn((2, 3, 80, 80))
+    output = model(dummy)
+
+    print(output[0].shape)
+    print(output[1].shape)
     # #test F_attn
     # model = Matching_Score_word(1,1,1)
     # model= model.to(device)
