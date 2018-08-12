@@ -4,9 +4,9 @@ import torch.nn.functional as F
 eps = 1e-8
 
 
-def gan_loss(uncon_output, con_output,label):
-    target = torch.full_like(uncon_output, label)
-    return 0.5 * F.mse_loss(uncon_output, target) + 0.5 * F.mse_loss(con_output, target) 
+def gan_loss(output,label):
+    target = torch.full_like(output, label)
+    return F.mse_loss(output, target) 
 
 # def D_loss(out_fake, out_real):
 #     d_loss = -torch.mean(torch.log(out_real + eps) + torch.log(1 - out_fake + eps))

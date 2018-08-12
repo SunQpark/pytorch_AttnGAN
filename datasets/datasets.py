@@ -14,7 +14,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class CubDataset(Dataset):
-    def __init__(self, data_dir, transform=None, train=True):
+    def __init__(self, data_dir, transform_1=None, transform_2 = None, transform_3 = None, train=True):
         
         self.image_dir = os.path.join(data_dir, 'CUB_200_2011/images')
         self.text_dir = os.path.join(data_dir, 'text')
@@ -23,7 +23,9 @@ class CubDataset(Dataset):
         fname_path = os.path.join(data_dir, f'{self.mode}/filenames.pickle')
         with open(fname_path, 'rb') as fname_file:
             self.fnames = pkl.load(fname_file)
-        self.transform = transform
+        self.transform_1 = transform_1
+        self.transform_2 = transform_2 
+        self.transform_3 = transform_3
         # self.target_transform = target_transform
         self.EOS_token = 1
         self.preprocessed = self.prepare_dict()
@@ -36,9 +38,12 @@ class CubDataset(Dataset):
         # open image file, convert to have 3 channels
         data = Image.open(image_path).convert("RGB")
 
-        if self.transform is not None:
-            data = self.transform(data)
-
+        if self.transform_1 is not None:
+            data_1 = self.transform_1(data)
+        if self.transform_2 is not None:
+            data_2 = self.transform_2(data)
+        if self.transform_1 is not None:
+            data_3 = self.transform_3(data)
         # select one sentence from given set of captions
         with open(text_path, 'r') as text_file:
             captions = list(text_file)
@@ -50,7 +55,7 @@ class CubDataset(Dataset):
         s = re.sub(r"([.!?])", r" \1", s)
         label_pre = re.sub(r"[^a-zA-Z.!?]+", r" ", s)
         label = self.tensorFromSentence(self.preprocessed, label_pre)
-        return data, label
+        return data_1, data_2, data_3, label
 
     def __len__(self):
         return len(self.fnames)
