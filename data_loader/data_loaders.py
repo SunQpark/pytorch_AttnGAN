@@ -8,14 +8,26 @@ from base import BaseDataLoader
 from datasets import *
 
 
+def resize_images(image, sizes, to_tensor=True):
+    if to_tensor:
+        resizers = [transforms.Compose([transforms.Resize(s), transforms.ToTensor()]) for s in sizes]
+    else:
+        resizers = [transforms.Resize(s) for s in sizes]
+
+    images = [r(image) for r in resizers]
+    return images
+
+
 def collate_text(list_inputs):
-    order = np.argsort([t.shape[0] for _,_,_,t in list_inputs])
-    list_sorted = [list_inputs[i][3] for i in order[::-1]]
-    data_1 = torch.cat([list_inputs[i][0].unsqueeze(0) for i in order[:-1]])
-    data_2 = torch.cat([list_inputs[i][1].unsqueeze(0) for i in order[:-1]])
-    data_3 = torch.cat([list_inputs[i][2].unsqueeze(0) for i in order[:-1]])
-    target = pack_sequence(list_sorted)
-    return data_1, data_2, data_3, target
+    order = np.argsort([t.shape[0] for _, t in list_inputs])
+
+    images_sorted = [list_inputs[i][0] for i in order[::-1]]
+    text_sorted = [list_inputs[i][1] for i in order[::-1]]
+    data = []
+    for images in zip(*images_sorted):
+        data.append(torch.cat([img.unsqueeze(0) for img in images]))
+    target = pack_sequence(text_sorted)
+    return data, target
 
 
 class SVHNDataLoader(BaseDataLoader):
@@ -41,8 +53,7 @@ class CocoDataLoader(BaseDataLoader):
 
         trsfm = transforms.Compose([
             transforms.CenterCrop(256),
-            transforms.Resize(64),
-            transforms.ToTensor(),
+            lambda x: resize_images(x, [64, 128, 256])
         ])
         
         self.dataset = CocoWrapper(data_dir, transform=trsfm)
@@ -56,36 +67,24 @@ class CubDataLoader(BaseDataLoader):
         self.batch_size = batch_size
         self.valid_batch_size = valid_batch_size
             
-        trsfm_1 = transforms.Compose([
+        trsfm = transforms.Compose([
             transforms.CenterCrop(256),
-            transforms.Resize(64),
-            transforms.ToTensor(),
+            lambda x: resize_images(x, [64, 128, 256])
         ])
         
-        trsfm_2 = transforms.Compose([
-            transforms.CenterCrop(256),
-            transforms.Resize(128),
-            transforms.ToTensor(),
-        ])
-        
-        trsfm_3 = transforms.Compose([
-            transforms.CenterCrop(256),
-            # transforms.Resize(64),
-            transforms.ToTensor(),
-        ])
-        
-        self.dataset = CubDataset(data_dir, transform_1=trsfm_1, transform_2=trsfm_2, transform_3=trsfm_3)
+        self.dataset = CubDataset(data_dir, transform=trsfm, return_sizes=[64, 128, 256])
         super(CubDataLoader, self).__init__(self.dataset, self.batch_size, self.valid_batch_size, shuffle, validation_split, validation_fold, num_workers, collate_fn=collate_text)
 
 
 if __name__ == '__main__':
-    # coco_loader = CocoDataLoader('../cocoapi', 4)
-    cub_loader = CubDataLoader('../../birds', 4)
+
+    cub_loader = CubDataLoader('../../data/birds', 2)
     
-    for i, (data_1, data_2, data_3, target) in enumerate(cub_loader):
-        print(data_1.shape)
-        print(data_2.shape)
-        print(data_3.shape)
-        print(i, target)
-        # padded = pad_packed_sequence(target)
+    for i, (data, target) in enumerate(cub_loader):
+        # print(data)
+        print(data[0].shape)
+        print(data[1].shape)
+        print(data[2].shape)
+        print(target)
+    #     # padded = pad_packed_sequence(target)
         break

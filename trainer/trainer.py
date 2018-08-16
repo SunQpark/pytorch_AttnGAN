@@ -40,17 +40,17 @@ class Trainer(BaseTrainer):
 
         total_loss = 0
         total_metrics = np.zeros(len(self.metrics))
-        for batch_idx, (data_1, _, _, label) in enumerate(self.data_loader):
-            batch_size = data.shape[0]
+        for batch_idx, (data, label) in enumerate(self.data_loader):
+
             real_label = 1
             fake_label = 0
-            data = data.to(self.device)
-            # label = torch.full((batch_size, ), real_label, device=self.device)
+            
+            data = [d.to(self.device) for d in data]
 
             # train D with real data
             self.d_optimizer.zero_grad()
             # output, fake_x = self.model(z, data)
-            output = self.model.D(data_1)
+            output = self.model.D(data[0])
             errD_real = self.loss(output, real_label)
             errD_real.backward(retain_graph=True)
 

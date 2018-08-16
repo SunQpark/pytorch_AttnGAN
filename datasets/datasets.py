@@ -13,8 +13,9 @@ import re
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
+
 class CubDataset(Dataset):
-    def __init__(self, data_dir, transform_1=None, transform_2 = None, transform_3 = None, train=True):
+    def __init__(self, data_dir, transform=None, train=True):
         
         self.image_dir = os.path.join(data_dir, 'CUB_200_2011/images')
         self.text_dir = os.path.join(data_dir, 'text')
@@ -23,9 +24,7 @@ class CubDataset(Dataset):
         fname_path = os.path.join(data_dir, f'{self.mode}/filenames.pickle')
         with open(fname_path, 'rb') as fname_file:
             self.fnames = pkl.load(fname_file)
-        self.transform_1 = transform_1
-        self.transform_2 = transform_2 
-        self.transform_3 = transform_3
+        self.transform = transform
         # self.target_transform = target_transform
         self.EOS_token = 1
         self.preprocessed = self.prepare_dict()
@@ -38,12 +37,9 @@ class CubDataset(Dataset):
         # open image file, convert to have 3 channels
         data = Image.open(image_path).convert("RGB")
 
-        if self.transform_1 is not None:
-            data_1 = self.transform_1(data)
-        if self.transform_2 is not None:
-            data_2 = self.transform_2(data)
-        if self.transform_1 is not None:
-            data_3 = self.transform_3(data)
+        if self.transform is not None:
+            data = self.transform(data)
+
         # select one sentence from given set of captions
         with open(text_path, 'r') as text_file:
             captions = list(text_file)
@@ -55,7 +51,7 @@ class CubDataset(Dataset):
         s = re.sub(r"([.!?])", r" \1", s)
         label_pre = re.sub(r"[^a-zA-Z.!?]+", r" ", s)
         label = self.tensorFromSentence(self.preprocessed, label_pre)
-        return data_1, data_2, data_3, label
+        return data, label
 
     def __len__(self):
         return len(self.fnames)
@@ -137,18 +133,20 @@ class CocoWrapper(datasets.CocoCaptions):
 if __name__ == '__main__':
     trsfm = transforms.Compose([
         transforms.CenterCrop(256),
-        transforms.Resize(64),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                              std=[0.229, 0.224, 0.225])
+        # transforms.Resize(64),
+        # transforms.ToTensor(),
+        # transforms.Normalize(mean=[0.485, 0.456, 0.406],
+        #                       std=[0.229, 0.224, 0.225])
     ])
     cub_dataset = CubDataset('../data/birds', transform=trsfm)
 
-    dataloader = DataLoader(cub_dataset, batch_size=24, shuffle=True)
+    # dataloader = DataLoader(cub_dataset, batch_size=24, shuffle=True)
     index = 10
     img, target = cub_dataset[index]
     # for batch, data in enumerate(dataloader):
     #     img = data
     #     print(batch, img.shape)
-    print(img.shape)
+    print(img[0].shape)
+    print(img[1].shape)
+    print(img[2].shape)
     print(target)
