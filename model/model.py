@@ -8,7 +8,6 @@ sys.path.append('./')
 # from base import BaseModel
 # from data_loader import CocoDataLoader, CubDataLoader
 
-
 class UpsampleBlock(nn.Module):
     def __init__(self, in_ch, out_ch):
         super(UpsampleBlock, self).__init__()
@@ -19,7 +18,6 @@ class UpsampleBlock(nn.Module):
     def forward(self, x):
         x = F.upsample(self.relu(self.bn(self.conv(x))), scale_factor=2)
         return x
-
 
 class DownsampleBlock(nn.Module):
     def __init__(self, in_ch, out_ch, batch_norm=False):
@@ -237,13 +235,23 @@ class Matching_Score_sent(nn.Module):
         return batch_sum_score_d, batch_sum_score_q
 
 
-# class AttnGAN(BaseModel):
-#     def __init__(self, parameter_list):
-#         super(AttnGAN, self).__init__()
+class AttnGAN(BaseModel):
+    def __init__(self, fca_embedding_size, latent_size, in_ch, num_downsample, embed_size, n_d, vocab_size, word_embedding_size, hidden_size, num_layer, dropout):
+        super(AttnGAN, self).__init__()
+        self.F_ca = F_ca(fca_embedding_size, latent_size)
+        self.F_0 = F_0(latent_size)
+        # self.F_1 = F_1(in_ch, n_g)
+        # self.F_attn = F_attn(e_dim, h_dim)
+        self.D = Discriminator(in_ch, num_downsample, embed_size, n_d)
+        self.Text_encoder = Text_encoder(vocab_size, word_embedding_size, hidden_size, num_layer, dropout)
 
-#     def forward(self, parameter_list):
-#         pass
-
+    def generator(self, label):
+        sen_feature = torch.sum(self.Text_encoder(label))
+        cond = self.F_ca(sen_feature)
+        random_noise = torch.randn_like(cond) 
+        input = torch.cat(random_noise, cond)
+        generated = self.F_0(input)
+        return generated
 
 if __name__ == '__main__':
     #Test Image_encoder

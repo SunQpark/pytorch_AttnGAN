@@ -40,7 +40,7 @@ class Trainer(BaseTrainer):
 
         total_loss = 0
         total_metrics = np.zeros(len(self.metrics))
-        for batch_idx, (data, _) in enumerate(self.data_loader):
+        for batch_idx, (data_1, _, _, label) in enumerate(self.data_loader):
             batch_size = data.shape[0]
             real_label = 1
             fake_label = 0
@@ -50,14 +50,13 @@ class Trainer(BaseTrainer):
             # train D with real data
             self.d_optimizer.zero_grad()
             # output, fake_x = self.model(z, data)
-            output = self.model.D(data)
+            output = self.model.D(data_1)
             errD_real = self.loss(output, real_label)
             errD_real.backward(retain_graph=True)
 
             # train D with fake data
             # label.fill_(fake_label)
-            z = torch.randn((batch_size, 100, 1, 1), device=self.device)
-            fake_x = self.model.G(z)
+            fake_x = self.model.generator(label)
             output = self.model.D(fake_x)
             errD_fake = self.loss(output, fake_label)
             errD_fake.backward(retain_graph=True)
