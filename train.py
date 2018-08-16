@@ -53,11 +53,12 @@ def main(args):
     # Model
     # G = DC_Generator(100, n_size=2)
     # D = DC_Discriminator(100, n_size=2)
-    model = AttnGAN(100, 3, n_size=4)
+    model = AttnGAN(fca_embedding_size= 128, latent_size =100, in_ch=3, num_downsample=3, embed_size =100 , n_d =64,\
+    vocab_size = 4795, word_embedding_size = 128, hidden_size = 64, num_layer=1, dropout=0.2)
     # model = (G, D)
     # print('generator: \n', G)
     # print('discriminator: \n', D)
-    model.summary()
+    # model.summary()
 
     # A logger to store training process information
     train_logger = Logger()
@@ -69,7 +70,7 @@ def main(args):
     d_optimizer = optim.Adam(model.D.parameters(), lr=args.lr, weight_decay=args.wd, amsgrad=True, betas=(0.5, 0.999))
 
     # Data loader and validation split
-    data_loader = CubDataLoader('../data/birds', args.batch_size, args.valid_batch_size, args.validation_split, args.validation_fold, shuffle=True, num_workers=0)
+    data_loader = CubDataLoader('../birds', args.batch_size, args.valid_batch_size, args.validation_split, args.validation_fold, shuffle=True, num_workers=0)
     # data_loader = CocoDataLoader('../cocoapi', args.batch_size, args.valid_batch_size, args.validation_split, args.validation_fold, shuffle=True, num_workers=4)
     valid_data_loader = data_loader.get_valid_loader()
 
@@ -80,7 +81,7 @@ def main(args):
     trainer = Trainer(model, loss, metrics,
                       data_loader=data_loader,
                       valid_data_loader=valid_data_loader,
-                      optimizer=(g_optimizer, d_optimizer),
+                      optimizer=(g_optimizer,d_optimizer),
                       epochs=args.epochs,
                       train_logger=train_logger,
                       writer=writer,

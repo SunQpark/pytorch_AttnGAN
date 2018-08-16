@@ -65,10 +65,11 @@ class Text_encoder(nn.Module):
     def forward(self, x):
         x, lengths = pad_packed_sequence(x)
         x = x.squeeze()
-        embedded = self.embedding(x.cpu())
+        embedded = self.embedding(x)
         embedded = pack_padded_sequence(embedded, lengths)
         output, _ = self.bi_lstm(embedded)
         output, _ = pad_packed_sequence(output)
+        output = output.transpose(0,1)
         return output
 
 
@@ -107,7 +108,7 @@ class F_ca(nn.Module):
 class F_0(nn.Module):
     def __init__(self, latent_size, n_g=32):                                         
         super(F_0, self).__init__()
-        self.fc = nn.Linear(latent_size, 4 * 4 * 64 * n_g)
+        self.fc = nn.Linear(latent_size*2, 4 * 4 * 64 * n_g)
         self.upsample_blocks = nn.Sequential(
             UpsampleBlock(64 * n_g, 32 * n_g),
             UpsampleBlock(32 * n_g, 16 * n_g),
@@ -115,6 +116,7 @@ class F_0(nn.Module):
             UpsampleBlock( 8 * n_g,  4 * n_g),
         )
         self.G_0 = nn.Conv2d(4 * n_g, 3, 3, 1, 1)
+        self.n_g = n_g
 
     def forward(self, z):
         z = self.fc(z).view(-1, 64*self.n_g, 4, 4)
@@ -175,8 +177,9 @@ class Discriminator(nn.Module):
         x = self.downsamples(x_input)
         x = self.conv(x)
         score_uncond = F.sigmoid(x)
-
+        
         c = self.fc_cond(condition)
+        c = c.unsqueeze(2).unsqueeze(2)
         c = c.expand(c.shape[0], c.shape[1], x.shape[2], x.shape[3])
 
         concat = torch.cat([x, c], dim=1)
@@ -235,25 +238,34 @@ class Matching_Score_sent(nn.Module):
         
         return batch_sum_score_d, batch_sum_score_q
 
-
-class AttnGAN(BaseModel):
-    def __init__(self, fca_embedding_size, latent_size, in_ch, num_downsample, embed_size, n_d, vocab_size, word_embedding_size, hidden_size, num_layer, dropout):
-        super(AttnGAN, self).__init__()
+class Generator_module(nn.Module):
+    def __init__(self, fca_embedding_size, latent_size,vocab_size, word_embedding_size, hidden_size, num_layer, dropout):
+        super(Generator_module, self).__init__()
         self.F_ca = F_ca(fca_embedding_size, latent_size)
         self.F_0 = F_0(latent_size)
+        self.Text_encoder = Text_encoder(vocab_size, word_embedding_size, hidden_size, num_layer, dropout)
+
+    def forward(self, label):
+        sen_feature = torch.sum(self.Text_encoder(label), dim = 1)
+        cond = self.F_ca(sen_feature)
+        random_noise = torch.randn_like(cond)
+        input = torch.cat((random_noise, cond), dim=1)
+        _, generated = self.F_0(input)
+        return generated, cond
+
+class AttnGAN(nn.Module):
+    def __init__(self, fca_embedding_size, latent_size, in_ch, num_downsample, embed_size, n_d, vocab_size, word_embedding_size, hidden_size, num_layer, dropout):
+        super(AttnGAN, self).__init__()
+        # self.F_ca = F_ca(fca_embedding_size, latent_size)
+        # self.F_0 = F_0(latent_size)
         # self.F_1 = F_1(in_ch, n_g)
         # self.F_attn = F_attn(e_dim, h_dim)
         self.D = Discriminator(in_ch, num_downsample, embed_size, n_d)
-        self.Text_encoder = Text_encoder(vocab_size, word_embedding_size, hidden_size, num_layer, dropout)
-
-    def generator(self, label):
-        sen_feature = torch.sum(self.Text_encoder(label))
-        cond = self.F_ca(sen_feature)
-        random_noise = torch.randn_like(cond) 
-        input = torch.cat(random_noise, cond)
-        generated = self.F_0(input)
-        return generated
-
+        # self.Text_encoder = Text_encoder(vocab_size, word_embedding_size, hidden_size, num_layer, dropout)
+        self.G = Generator_module(fca_embedding_size, latent_size, vocab_size, word_embedding_size, hidden_size, num_layer, dropout)
+    def forward(self):
+        pass
+    
 if __name__ == '__main__':
     #Test Image_encoder
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')

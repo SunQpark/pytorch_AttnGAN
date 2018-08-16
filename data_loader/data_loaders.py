@@ -72,7 +72,7 @@ class CubDataLoader(BaseDataLoader):
             lambda x: resize_images(x, [64, 128, 256])
         ])
         
-        self.dataset = CubDataset(data_dir, transform=trsfm, return_sizes=[64, 128, 256])
+        self.dataset = CubDataset(data_dir, transform=trsfm)
         super(CubDataLoader, self).__init__(self.dataset, self.batch_size, self.valid_batch_size, shuffle, validation_split, validation_fold, num_workers, collate_fn=collate_text)
 
 

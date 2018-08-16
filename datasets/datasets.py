@@ -28,6 +28,7 @@ class CubDataset(Dataset):
         # self.target_transform = target_transform
         self.EOS_token = 1
         self.preprocessed = self.prepare_dict()
+        print('vocabsize', self.preprocessed.n_words)
 
     def __getitem__(self, idx):
         fname = self.fnames[idx]
@@ -41,17 +42,24 @@ class CubDataset(Dataset):
             data = self.transform(data)
 
         # select one sentence from given set of captions
-        with open(text_path, 'r') as text_file:
-            captions = list(text_file)
-
+        # with open(text_path, 'r') as text_file:
+        #     captions = list(text_file)
+        captions = open(text_path, encoding='utf-8').read().strip().replace('.','').split('\n')
+        # print('caption', captions)
         select_idx = np.random.randint(len(captions), size=None)
-        label_pre = captions[select_idx].replace('\n', '').replace('.','')
+        label_pre = captions[select_idx]
 
-        s = label_pre.lower().strip()
+        s = self._unicodeToAscii(label_pre.lower().strip())
         s = re.sub(r"([.!?])", r" \1", s)
         label_pre = re.sub(r"[^a-zA-Z.!?]+", r" ", s)
         label = self.tensorFromSentence(self.preprocessed, label_pre)
         return data, label
+    
+    def _unicodeToAscii(self, s):
+        return ''.join(
+            c for c in unicodedata.normalize('NFD', s)
+            if unicodedata.category(c) != 'Mn'
+        )
 
     def __len__(self):
         return len(self.fnames)
@@ -60,7 +68,7 @@ class CubDataset(Dataset):
         text_sent = preprocess_text()
         for fname in self.fnames:
             text_path = os.path.join(self.text_dir, f'{fname}.txt')
-            captions = open(text_path, encoding='utf-8').read().strip().split('\n')
+            captions = open(text_path, encoding='utf-8').read().strip().replace('.','').split('\n')
             s = [text_sent.normalizeString(s) for s in captions]
             for k in range(len(s)):
                 text_sent.addSentence(s[k])
@@ -105,6 +113,7 @@ class preprocess_text:
         s = self._unicodeToAscii(s.lower().strip())
         s = re.sub(r"([.!?])", r" \1", s)
         s = re.sub(r"[^a-zA-Z.!?]+", r" ", s)
+        # print('s', len(s))
         return s
 
 

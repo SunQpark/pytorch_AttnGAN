@@ -22,7 +22,7 @@ class BaseTrainer:
         self.valid_data_loader = valid_data_loader
         self.valid = True if self.valid_data_loader is not None else False
 
-        self.g_optimizer, self.d_optimizer = optimizer
+        self.g_optimizer, self.d_optimizer =  optimizer
         self.epochs = epochs
         self.save_freq = save_freq
         self.verbosity = verbosity
