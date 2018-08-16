@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-from model.model import DC_GAN
+from model.model import AttnGAN 
 from model.model import Text_encoder
 from model.loss import gan_loss
 # from model.metric import accuracy
@@ -53,7 +53,7 @@ def main(args):
     # Model
     # G = DC_Generator(100, n_size=2)
     # D = DC_Discriminator(100, n_size=2)
-    model = DC_GAN(100, 3, n_size=4)
+    model = AttnGAN(100, 3, n_size=4)
     # model = (G, D)
     # print('generator: \n', G)
     # print('discriminator: \n', D)
