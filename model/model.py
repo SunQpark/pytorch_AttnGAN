@@ -107,7 +107,7 @@ class F_ca(nn.Module):
 
 
 class F_0(nn.Module):
-    def __init__(self, latent_size, n_g=32):
+    def __init__(self, latent_size, n_g=32):                                         
         super(F_0, self).__init__()
         self.fc = nn.Linear(latent_size, 4 * 4 * 64 * n_g)
         self.upsample_blocks = nn.Sequential(
@@ -183,7 +183,8 @@ class Discriminator(nn.Module):
 
         concat = torch.cat([x, c], dim=1)
         score_cond = F.sigmoid(self.conv_cond(concat))
-        return score_uncond, score_cond
+        score_total = torch.cat([score_cond, score_uncond], dim=1)
+        return score_total
 
 class Matching_Score_word(nn.Module):
     def __init__(self, gamma_1, gamma_2, gamma_3):
