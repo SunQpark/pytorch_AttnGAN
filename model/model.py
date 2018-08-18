@@ -20,19 +20,19 @@ class UpsampleBlock(nn.Module):
         return x
 
 class DownsampleBlock(nn.Module):
-    def __init__(self, in_ch, out_ch, batch_norm=False):
+    def __init__(self, in_ch, out_ch, inst_norm=True):
         super(DownsampleBlock, self).__init__()
         self.conv = nn.Conv2d(in_ch, out_ch, 4, 2, 1)
-        if batch_norm:
-            self.bn = nn.BatchNorm2d(out_ch)
+        if inst_norm:
+            self.inorm = nn.InstanceNorm2d(out_ch)
         else:
-            self.bn = None
-        self.lrelu = nn.LeakyReLU(inplace=True)
+            self.inorm = None
+        self.lrelu = nn.LeakyReLU(0.2, inplace=True)
     
     def forward(self, x_input):
         x = self.conv(x_input)
-        if self.bn is not None:
-            x = self.bn(x)
+        if self.inorm is not None:
+            x = self.inorm(x)
         x = self.lrelu(x)
         return x
 
@@ -246,7 +246,7 @@ class Generator_module(nn.Module):
         self.Text_encoder = Text_encoder(vocab_size, word_embedding_size, hidden_size, num_layer, dropout)
 
     def forward(self, label):
-        sen_feature = torch.sum(self.Text_encoder(label), dim = 1)
+        sen_feature = torch.mean(self.Text_encoder(label), dim = 1)
         cond = self.F_ca(sen_feature)
         random_noise = torch.randn_like(cond)
         input = torch.cat((random_noise, cond), dim=1)
@@ -260,9 +260,10 @@ class AttnGAN(nn.Module):
         # self.F_0 = F_0(latent_size)
         # self.F_1 = F_1(in_ch, n_g)
         # self.F_attn = F_attn(e_dim, h_dim)
-        self.D = Discriminator(in_ch, num_downsample, embed_size, n_d)
         # self.Text_encoder = Text_encoder(vocab_size, word_embedding_size, hidden_size, num_layer, dropout)
         self.G = Generator_module(fca_embedding_size, latent_size, vocab_size, word_embedding_size, hidden_size, num_layer, dropout)
+        self.D = Discriminator(in_ch, num_downsample, embed_size, n_d)
+
     def forward(self):
         pass
     

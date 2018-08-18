@@ -51,17 +51,16 @@ class Trainer(BaseTrainer):
             self.d_optimizer.zero_grad()
             # output, fake_x = self.model(z, data)
             _, cond = self.model.G(label)
-            output = self.model.D(data[0], cond)
+            output = self.model.D(data[0], cond.detach())
             errD_real = self.loss(output, real_label)
-            errD_real.backward(retain_graph=True)
+            errD_real.backward()
 
             # train D with fake data
-            # label.fill_(fake_label)
             fake_x, _ = self.model.G(label)
 
-            output = self.model.D(fake_x, cond)
+            output = self.model.D(fake_x.detach(), cond.detach())
             errD_fake = self.loss(output, fake_label)
-            errD_fake.backward(retain_graph=True)
+            errD_fake.backward()
 
             self.d_optimizer.step()
 
@@ -69,20 +68,23 @@ class Trainer(BaseTrainer):
             # train G
             # label.fill_(real_label)
             # output = self.model.D(fake_x)
+            fake_x, _ = self.model.G(label)
+            output = self.model.D(fake_x, cond)
             errG = self.loss(output, real_label)
             errG.backward()
 
+            self.g_optimizer.step()
+            
             loss_D = errD_fake.item() + errD_real.item()
             loss_G = errG.item()
             loss = loss_G + loss_D
 
-            self.g_optimizer.step()
 
             self.train_iter += 1
             self.writer.add_scalar(f'{self.training_name}/Train/D_loss', loss_D, self.train_iter)
             self.writer.add_scalar(f'{self.training_name}/Train/G_loss', loss_G, self.train_iter)
         
-            if self.train_iter % 50 == 0:
+            if self.train_iter % 20 == 0:
                 # self.writer.add_image('image/orig', data, self.train_iter)
                 self.writer.add_image('image/generated', make_grid(fake_x, normalize=True), self.train_iter)
 
