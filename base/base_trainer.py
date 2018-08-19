@@ -10,7 +10,7 @@ class BaseTrainer:
     Base class for all trainers
     """
     def __init__(self, model, loss, metrics, data_loader, valid_data_loader, optimizer, epochs,
-                 save_dir, save_freq, resume, verbosity, training_name, device,
+                 save_dir, save_freq, resume, resume_path, verbosity, training_name, device,
                  train_logger=None, writer=None, monitor='loss', monitor_mode='min'):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.model = model
@@ -39,11 +39,11 @@ class BaseTrainer:
         assert monitor_mode == 'min' or monitor_mode == 'max'
         self.monitor_best = math.inf if monitor_mode == 'min' else -math.inf
         self.start_epoch = 1
+    
 
-
-        self.checkpoint_dir = os.path.join(save_dir, training_name)
+        self.checkpoint_dir = os.path.join(save_dir)
         ensure_dir(self.checkpoint_dir)
-        if resume:
+        if resume is not None:
             self._resume_checkpoint(resume)
 
         

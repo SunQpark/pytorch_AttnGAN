@@ -50,17 +50,17 @@ class Trainer(BaseTrainer):
             # train D with real data
             self.d_optimizer.zero_grad()
             # output, fake_x = self.model(z, data)
-            _, cond = self.model.G(label)
+            fake_x, cond, mu, std = self.model.G(label)
             output = self.model.D(data[0], cond.detach())
-            errD_real = self.loss(output, real_label)
-            errD_real.backward()
+            errD_real = self.loss(output, real_label, mu, std)
+            errD_real.backward(retain_graph=True)
 
             # train D with fake data
-            fake_x, _ = self.model.G(label)
+            # fake_x, _ = self.model.G(label)
 
             output = self.model.D(fake_x.detach(), cond.detach())
-            errD_fake = self.loss(output, fake_label)
-            errD_fake.backward()
+            errD_fake = self.loss(output, fake_label, mu, std)
+            errD_fake.backward(retain_graph=True)
 
             self.d_optimizer.step()
 
@@ -68,9 +68,9 @@ class Trainer(BaseTrainer):
             # train G
             # label.fill_(real_label)
             # output = self.model.D(fake_x)
-            fake_x, _ = self.model.G(label)
+            # fake_x, _ = self.model.G(label)
             output = self.model.D(fake_x, cond)
-            errG = self.loss(output, real_label)
+            errG = self.loss(output, real_label, mu, std)
             errG.backward()
 
             self.g_optimizer.step()

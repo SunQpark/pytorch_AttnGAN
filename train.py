@@ -13,48 +13,65 @@ from trainer import Trainer
 from logger import Logger
 from tensorboardX import SummaryWriter
 import torch.multiprocessing as mp
+from datetime import datetime
 
 logging.basicConfig(level=logging.INFO, format='')
-writer = SummaryWriter('saved/runs')
 
+def arg_parse():
+    parser = argparse.ArgumentParser()
 
-parser = argparse.ArgumentParser(description='PyTorch Template')
-parser.add_argument('-b', '--batch-size', default=32, type=int,
-                    help='mini-batch size (default: 32)')
-parser.add_argument('-e', '--epochs', default=32, type=int,
-                    help='number of total epochs (default: 32)')
-parser.add_argument('--lr', default=0.0002, type=float,
-                    help='learning rate (default: 0.0002)')
-parser.add_argument('--wd', default=0.0, type=float,
-                    help='weight decay (default: 0.0)')
-parser.add_argument('--resume', default='', type=str,
-                    help='path to latest checkpoint (default: none)')
-parser.add_argument('--verbosity', default=2, type=int,
-                    help='verbosity, 0: quiet, 1: per epoch, 2: complete (default: 2)')
-parser.add_argument('--save-dir', default='saved', type=str,
-                    help='directory of saved model (default: saved)')
-parser.add_argument('--save-freq', default=1, type=int,
-                    help='training checkpoint frequency (default: 1)')
-parser.add_argument('--data-dir', default='datasets', type=str,
-                    help='directory of training/testing data (default: datasets)')
-parser.add_argument('--valid-batch-size', default=1000, type=int,
-                    help='mini-batch size (default: 1000)')
-parser.add_argument('--validation-split', default=0.0, type=float,
-                    help='ratio of split validation data, [0.0, 1.0) (default: 0.1)')
-parser.add_argument('--validation-fold', default=0, type=int,
-                    help='select part of data to be used as validation set (default: 0)')
-parser.add_argument('--no-cuda', action="store_true",
-                    help='use CPU instead of GPU')
+    parser.add_argument('-b', '--batch-size', default=32, type=int,
+                        help='mini-batch size (default: 32)')
+    parser.add_argument('-e', '--epochs', default=32, type=int,
+                        help='number of total epochs (default: 32)')
+    parser.add_argument('--lr', default=0.0002, type=float,
+                        help='learning rate (default: 0.0002)')
+    parser.add_argument('--wd', default=0.0, type=float,
+                        help='weight decay (default: 0.0)')
+    parser.add_argument('--resume', default=None, type=str,
+                        help='path to latest checkpoint (default: none)')
+    parser.add_argument('--verbosity', default=2, type=int,
+                        help='verbosity, 0: quiet, 1: per epoch, 2: complete (default: 2)')
+    parser.add_argument('--save-dir', default='saved', type=str,
+                        help='directory of saved model (default: saved)')
+    parser.add_argument('--save-freq', default=1, type=int,
+                        help='training checkpoint frequency (default: 1)')
+    parser.add_argument('--data-dir', default='datasets', type=str,
+                        help='directory of training/testing data (default: datasets)')
+    parser.add_argument('--valid-batch-size', default=1000, type=int,
+                        help='mini-batch size (default: 1000)')
+    parser.add_argument('--validation-split', default=0.0, type=float,
+                        help='ratio of split validation data, [0.0, 1.0) (default: 0.1)')
+    parser.add_argument('--validation-fold', default=0, type=int,
+                        help='select part of data to be used as validation set (default: 0)')
+    parser.add_argument('--no-cuda', action="store_true",
+                        help='use CPU instead of GPU')
+    parser.add_argument('--timestamp', default=datetime.now().strftime("%y%m%d%H%M%S"), type=str)
+    parser.add_argument('--log-dir', default='saved/runs/', type=str)
+    parser.add_argument('--in-ch', default=3, type=int)
+    parser.add_argument('--vocab-size', default=4795, type=int)
+    parser.add_argument('--latent-size', default=100, type=int)
+    parser.add_argument('--dropout', default=0.2, type= float)
+    parser.add_argument('--embedding-size', default=128, type=int)
+    parser.add_argument('--hidden-size', default=64, type=int)
+
+    args = parser.parse_args()
+    config_list = [args.batch_size, args.lr, args.in_ch, args.vocab_size, args.latent_size, args.dropout, args.embedding_size]
+    config = ""
+    for i in map(str, config_list):
+        config = config + '_' + i
+    args.config = config
+    return args
 
 
 def main(args):
+    writer = SummaryWriter(args.log_dir + args.timestamp + args.config)
     device = torch.device('cuda:0' if torch.cuda.is_available() and not args.no_cuda else 'cpu')
     # mp.set_start_method('spawn')
     # Model
     # G = DC_Generator(100, n_size=2)
     # D = DC_Discriminator(100, n_size=2)
-    model = AttnGAN(fca_embedding_size= 128, latent_size =100, in_ch=3, num_downsample=3, embed_size =100 , n_d =64,\
-    vocab_size = 4795, word_embedding_size = 128, hidden_size = 64, num_layer=1, dropout=0.2)
+    model = AttnGAN(embedding_size= args.embedding_size, latent_size = args.latent_size, in_ch=args.in_ch, num_downsample=3, n_d =64, vocab_size = args.vocab_size, hidden_size = args.hidden_size, num_layer=1, dropout=args.dropout)
     # model = (G, D)
     # print('generator: \n', G)
     # print('discriminator: \n', D)
@@ -85,7 +102,7 @@ def main(args):
                       epochs=args.epochs,
                       train_logger=train_logger,
                       writer=writer,
-                      save_dir=args.save_dir,
+                      save_dir=args.log_dir + args.timestamp + args.config,
                       save_freq=args.save_freq,
                       resume=args.resume,
                       verbosity=args.verbosity,
@@ -102,4 +119,4 @@ def main(args):
 
 
 if __name__ == '__main__':
-    main(parser.parse_args())
+    main(arg_parse())

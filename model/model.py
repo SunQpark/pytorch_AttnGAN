@@ -100,7 +100,7 @@ class F_ca(nn.Module):
         if self.training:
             std = self.fc_std(e_input)
             eps = torch.randn_like(std)
-            return mu + std * eps
+            return mu, std, mu + std * eps
         else:
             return mu
 
@@ -239,32 +239,33 @@ class Matching_Score_sent(nn.Module):
         return batch_sum_score_d, batch_sum_score_q
 
 class Generator_module(nn.Module):
-    def __init__(self, fca_embedding_size, latent_size,vocab_size, word_embedding_size, hidden_size, num_layer, dropout):
+    def __init__(self, embedding_size, latent_size,vocab_size, hidden_size, num_layer, dropout):
         super(Generator_module, self).__init__()
-        self.F_ca = F_ca(fca_embedding_size, latent_size)
+        self.F_ca = F_ca(embedding_size, latent_size)
         self.F_0 = F_0(latent_size)
-        self.Text_encoder = Text_encoder(vocab_size, word_embedding_size, hidden_size, num_layer, dropout)
+        self.Text_encoder = Text_encoder(vocab_size, embedding_size, hidden_size, num_layer, dropout)
 
     def forward(self, label):
         sen_feature = torch.mean(self.Text_encoder(label), dim = 1)
-        cond = self.F_ca(sen_feature)
+        mu, std, cond = self.F_ca(sen_feature)
         random_noise = torch.randn_like(cond)
         input = torch.cat((random_noise, cond), dim=1)
         _, generated = self.F_0(input)
-        return generated, cond
+        return generated, cond, mu, std
 
 class AttnGAN(nn.Module):
-    def __init__(self, fca_embedding_size, latent_size, in_ch, num_downsample, embed_size, n_d, vocab_size, word_embedding_size, hidden_size, num_layer, dropout):
+    def __init__(self, embedding_size, latent_size, in_ch, num_downsample, n_d, vocab_size, hidden_size, num_layer, dropout):
         super(AttnGAN, self).__init__()
         # self.F_ca = F_ca(fca_embedding_size, latent_size)
         # self.F_0 = F_0(latent_size)
         # self.F_1 = F_1(in_ch, n_g)
         # self.F_attn = F_attn(e_dim, h_dim)
         # self.Text_encoder = Text_encoder(vocab_size, word_embedding_size, hidden_size, num_layer, dropout)
-        self.G = Generator_module(fca_embedding_size, latent_size, vocab_size, word_embedding_size, hidden_size, num_layer, dropout)
-        self.D = Discriminator(in_ch, num_downsample, embed_size, n_d)
+        self.G = Generator_module(embedding_size, latent_size, vocab_size, hidden_size, num_layer, dropout)
+        self.D = Discriminator(in_ch, num_downsample, latent_size, n_d)
 
     def forward(self):
+        print('attngan')
         pass
     
 if __name__ == '__main__':
