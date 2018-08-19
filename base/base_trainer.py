@@ -10,7 +10,7 @@ class BaseTrainer:
     Base class for all trainers
     """
     def __init__(self, model, loss, metrics, data_loader, valid_data_loader, optimizer, epochs,
-                 save_dir, save_freq, resume, resume_path, verbosity, training_name, device,
+                 save_dir, save_freq, resume, verbosity, training_name, device,
                  train_logger=None, writer=None, monitor='loss', monitor_mode='min'):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.model = model
