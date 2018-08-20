@@ -4,10 +4,13 @@ import torch.nn.functional as F
 eps = 1e-8
 
 
-def gan_loss(output, label, mu, logvar):
+def gan_loss(output, label, mu=None, logvar=None):
     target = torch.full_like(output, label)
-    KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-    return F.mse_loss(output, target) + KLD
+    loss = F.mse_loss(output, target)
+    if mu is not None:
+        KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+        loss += KLD
+    return loss
 
 
 # def D_loss(out_fake, out_real):

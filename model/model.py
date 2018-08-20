@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 from torchvision.models import inception_v3
 sys.path.append('./')
-# from base import BaseModel
+from base import BaseModel
 # from data_loader import CocoDataLoader, CubDataLoader
 
 class UpsampleBlock(nn.Module):
@@ -188,6 +188,28 @@ class Discriminator(nn.Module):
         score_total = torch.cat([score_cond, score_uncond], dim=1)
         return score_total
 
+
+class DC_Discriminator(BaseModel):
+    def __init__(self, n_c=3, n_size=4):
+        super(DC_Discriminator, self).__init__()
+        self.conv1 = nn.Conv2d(3, 128, 4, 2, 1, bias=False)
+        self.bn1 = nn.BatchNorm2d(128)
+        self.conv2 = nn.Conv2d(128, 256, 4, 2, 1, bias=False)
+        self.bn2 = nn.BatchNorm2d(256)
+        self.conv3 = nn.Conv2d(256, 512, 4, 2, 1, bias=False)
+        self.bn3 = nn.BatchNorm2d(512)
+        self.conv4 = nn.Conv2d(512, 512, 3, 1, 1, bias=False)
+        self.bn4 = nn.BatchNorm2d(512)
+        self.conv5 = nn.Conv2d(512, 1, 1, 1, 0, bias=False)
+
+    def forward(self, x):
+        x = F.leaky_relu_(self.bn1(self.conv1(x)), 0.2)
+        x = F.leaky_relu_(self.bn2(self.conv2(x)), 0.2)
+        x = F.leaky_relu_(self.bn3(self.conv3(x)), 0.2)
+        x = F.leaky_relu_(self.bn4(self.conv4(x)), 0.2)
+        return F.sigmoid(self.conv5(x))
+        
+
 class Matching_Score_word(nn.Module):
     def __init__(self, gamma_1, gamma_2, gamma_3):
         super(Matching_Score_word, self).__init__()
@@ -263,7 +285,7 @@ class AttnGAN(nn.Module):
         # self.F_attn = F_attn(e_dim, h_dim)
         # self.Text_encoder = Text_encoder(vocab_size, word_embedding_size, hidden_size, num_layer, dropout)
         self.G = Generator_module(embedding_size, latent_size, vocab_size, hidden_size, num_layer, dropout)
-        self.D = Discriminator(in_ch, num_downsample, latent_size, n_d)
+        self.D = DC_Discriminator(in_ch, 4)
 
     def forward(self, text):
         generated, cond, mu, std = self.G(text)
