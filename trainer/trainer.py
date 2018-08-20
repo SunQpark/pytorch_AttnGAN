@@ -85,7 +85,7 @@ class Trainer(BaseTrainer):
             self.writer.add_scalar(f'{self.training_name}/Train/G_loss', loss_G, self.train_iter)
         
             if self.train_iter % 20 == 0:
-                # self.writer.add_image('image/orig', data, self.train_iter)
+                # self.writer.add_image('image/original', make_grid(data[0], normalize=True), self.train_iter)
                 self.writer.add_image('image/generated', make_grid(fake_x, normalize=True), self.train_iter)
 
             total_loss += loss

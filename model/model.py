@@ -16,7 +16,8 @@ class UpsampleBlock(nn.Module):
         self.relu = nn.ReLU(inplace=True)
 
     def forward(self, x):
-        x = F.upsample(self.relu(self.bn(self.conv(x))), scale_factor=2)
+        x = F.upsample(x, scale_factor=2)
+        x = self.relu(self.bn(self.conv(x)))
         return x
 
 class DownsampleBlock(nn.Module):
@@ -24,7 +25,7 @@ class DownsampleBlock(nn.Module):
         super(DownsampleBlock, self).__init__()
         self.conv = nn.Conv2d(in_ch, out_ch, 4, 2, 1)
         if inst_norm:
-            self.inorm = nn.InstanceNorm2d(out_ch)
+            self.inorm = nn.BatchNorm2d(out_ch)
         else:
             self.inorm = None
         self.lrelu = nn.LeakyReLU(0.2, inplace=True)
@@ -264,9 +265,10 @@ class AttnGAN(nn.Module):
         self.G = Generator_module(embedding_size, latent_size, vocab_size, hidden_size, num_layer, dropout)
         self.D = Discriminator(in_ch, num_downsample, latent_size, n_d)
 
-    def forward(self):
-        print('attngan')
-        pass
+    def forward(self, text):
+        generated, cond, mu, std = self.G(text)
+        output = self.D(generated, cond)
+        return output, mu, std
     
 if __name__ == '__main__':
     #Test Image_encoder
