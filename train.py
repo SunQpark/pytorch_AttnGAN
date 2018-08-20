@@ -50,7 +50,7 @@ def arg_parse():
     parser.add_argument('--log-dir', default='saved/runs/', type=str)
     parser.add_argument('--in-ch', default=3, type=int)
     parser.add_argument('--vocab-size', default=4795, type=int)
-    parser.add_argument('--latent-size', default=100, type=int)
+    parser.add_argument('--latent-size', default=128, type=int)
     parser.add_argument('--dropout', default=0.2, type= float)
     parser.add_argument('--embedding-size', default=128, type=int)
     parser.add_argument('--hidden-size', default=64, type=int)
@@ -71,7 +71,7 @@ def main(args):
     # Model
     # G = DC_Generator(100, n_size=2)
     # D = DC_Discriminator(100, n_size=2)
-    model = AttnGAN(embedding_size= args.embedding_size, latent_size = args.latent_size, in_ch=args.in_ch, num_downsample=3, n_d =64, vocab_size = args.vocab_size, hidden_size = args.hidden_size, num_layer=1, dropout=args.dropout)
+    model = AttnGAN(embedding_size= args.embedding_size, latent_size = args.latent_size, in_ch=args.in_ch, num_downsample=4, n_d =64, vocab_size = args.vocab_size, hidden_size = args.hidden_size, num_layer=1, dropout=args.dropout)
     # model = (G, D)
     # print('generator: \n', G)
     # print('discriminator: \n', D)
