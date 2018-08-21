@@ -202,7 +202,7 @@ class DC_Discriminator(BaseModel):
         self.bn4 = nn.BatchNorm2d(512)
         self.conv5 = nn.Conv2d(512, 1, 1, 1, 0, bias=False)
 
-    def forward(self, x):
+    def forward(self, x, cond):
         x = F.leaky_relu_(self.bn1(self.conv1(x)), 0.2)
         x = F.leaky_relu_(self.bn2(self.conv2(x)), 0.2)
         x = F.leaky_relu_(self.bn3(self.conv3(x)), 0.2)
@@ -285,7 +285,7 @@ class AttnGAN(nn.Module):
         # self.F_attn = F_attn(e_dim, h_dim)
         # self.Text_encoder = Text_encoder(vocab_size, word_embedding_size, hidden_size, num_layer, dropout)
         self.G = Generator_module(embedding_size, latent_size, vocab_size, hidden_size, num_layer, dropout)
-        self.D = DC_Discriminator(in_ch, 4)
+        self.D = Discriminator(in_ch, 4)
 
     def forward(self, text):
         generated, cond, mu, std = self.G(text)

@@ -1,7 +1,7 @@
 import numpy as np
 import torch
+from torch.nn.utils.rnn import pad_packed_sequence
 from torchvision.utils import make_grid
-from torchvision import transforms
 from base import BaseTrainer
 
 
@@ -20,6 +20,21 @@ class Trainer(BaseTrainer):
                                       save_dir, save_freq, resume, verbosity, training_name,
                                       device, train_logger, writer, monitor, monitor_mode)
         self.scheduler = lr_scheduler
+
+        word2index = self.data_loader.dataset.preprocessed.word2index
+        self.index2word = {v:k for k, v in word2index.items()}
+        self.index2word[1] = ''
+        self.index2word[0] = ''
+
+    def decode_sentence(self, index_tensor):
+        index_tensor = index_tensor.cpu()
+        batch = torch.unbind(pad_packed_sequence(index_tensor)[0], 1)
+        lengths = pad_packed_sequence(index_tensor)[1]
+        sentences = []
+        for sent, length in zip(batch, lengths):
+            sentence = ' '.join([self.index2word[idx.item()] for idx in sent[:length]])
+            sentences.append(sentence)
+        return sentences        
 
     def _train_epoch(self, epoch):
         """
@@ -41,7 +56,6 @@ class Trainer(BaseTrainer):
         total_loss = 0
         total_metrics = np.zeros(len(self.metrics))
         for batch_idx, (data, label) in enumerate(self.data_loader):
-
             real_label = 1
             fake_label = 0
             
@@ -49,30 +63,21 @@ class Trainer(BaseTrainer):
 
             # train D with real data
             self.d_optimizer.zero_grad()
-            # output, fake_x = self.model(z, data)
             fake_x, cond, mu, std = self.model.G(label)
-            output = self.model.D(data[0])
+            output = self.model.D(data[0], cond)
             errD_real = self.loss(output, real_label)
-            errD_real.backward(retain_graph=True)
+            errD_real.backward(retain_graph=True)            
 
             # train D with fake data
-            # fake_x, _ = self.model.G(label)
-
-            output = self.model.D(fake_x.detach())
+            output = self.model.D(fake_x, cond)
             errD_fake = self.loss(output, fake_label)
             errD_fake.backward(retain_graph=True)
-
             self.d_optimizer.step()
 
-            self.g_optimizer.zero_grad()
             # train G
-            # label.fill_(real_label)
-            # output = self.model.D(fake_x)
-            # fake_x, _ = self.model.G(label)
-            output = self.model.D(fake_x)
+            self.g_optimizer.zero_grad()
             errG = self.loss(output, real_label, mu, std)
             errG.backward()
-
             self.g_optimizer.step()
             
             loss_D = errD_fake.item() + errD_real.item()
@@ -87,6 +92,8 @@ class Trainer(BaseTrainer):
             if self.train_iter % 20 == 0:
                 # self.writer.add_image('image/original', make_grid(data[0], normalize=True), self.train_iter)
                 self.writer.add_image('image/generated', make_grid(fake_x, normalize=True), self.train_iter)
+                self.writer.add_text('text', '\n'.join(self.decode_sentence(label)), self.train_iter) # this is not working yet
+    
 
             total_loss += loss
             log_step = int(np.sqrt(self.batch_size))
