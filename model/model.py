@@ -288,9 +288,16 @@ class AttnGAN(nn.Module):
         self.D = DC_Discriminator(in_ch, 4)
 
     def forward(self, text):
-        generated, cond, mu, std = self.G(text)
-        output = self.D(generated, cond)
-        return output, mu, std
+        text_embedded = self.text_encoder(label)
+        generated, cond, mu, std, h_0 = self.G(label)
+        c_0 = self.F_attn(text_embedded, h_0)
+        h_1, x_1 = self.F_1(c_0, h_0)
+        score_1= self.D(x_1, cond)
+        c_1 = self.F_attn(text_embedded, h_1)
+        h_2, x_2 = self.F_1(c_1, h_1)
+        score_2 = self.D(x_2, cond)
+        return score_1, score_2
+        
     
 if __name__ == '__main__':
     #Test Image_encoder
