@@ -67,8 +67,9 @@ class Trainer(BaseTrainer):
             output_0 = self.model.D(data[0], cond)
             output_1 = self.model.D(data[1], cond)
             output_2 = self.model.D(data[2], cond)
-    
+
             errD_real = self.loss(output_0, real_label) + self.loss(output_1, real_label) + self.loss(output_2, real_label)
+            # errD_real = self.loss(output_0, real_label) + self.loss(output_1, real_label) 
             errD_real.backward(retain_graph=True)            
 
             # train D with fake data
@@ -76,12 +77,14 @@ class Trainer(BaseTrainer):
             output_1 = self.model.D(fake_x_1, cond)
             output_2 = self.model.D(fake_x_2, cond)
 
+            # errD_fake = self.loss(output_0, fake_label) + self.loss(output_1, fake_label) 
             errD_fake = self.loss(output_0, fake_label) + self.loss(output_1, fake_label) + self.loss(output_2, fake_label)
             errD_fake.backward(retain_graph=True)
             self.d_optimizer.step()
 
             # train G
             self.g_optimizer.zero_grad()
+            # errG = self.loss(output_0, real_label, mu, std) + self.loss(output_1, real_label, mu, std) 
             errG = self.loss(output_0, real_label, mu, std) + self.loss(output_1, real_label, mu, std) + self.loss(output_2, real_label, mu, std)
             errG.backward()
             self.g_optimizer.step()
@@ -94,13 +97,12 @@ class Trainer(BaseTrainer):
             self.train_iter += 1
             self.writer.add_scalar(f'{self.training_name}/Train/D_loss', loss_D, self.train_iter)
             self.writer.add_scalar(f'{self.training_name}/Train/G_loss', loss_G, self.train_iter)
-        
             if self.train_iter % 20 == 0:
                 # self.writer.add_image('image/original', make_grid(data[0], normalize=True), self.train_iter)
-                self.writer.add_image('image/generated', make_grid(fake_x, normalize=True), self.train_iter)
-                self.writer.add_text('text', '\n'.join(self.decode_sentence(label)), self.train_iter) # this is not working yet
-    
-
+                self.writer.add_image('image/generated_0', make_grid(fake_x_0, normalize=True), self.train_iter)
+                self.writer.add_image('image/generated_1', make_grid(fake_x_1, normalize=True), self.train_iter)
+                self.writer.add_image('image/generated_2', make_grid(fake_x_2, normalize=True), self.train_iter)
+                self.writer.add_text('text', '\n\n'.join(self.decode_sentence(label)), self.train_iter) # this is not working yet
             total_loss += loss
             log_step = int(np.sqrt(self.batch_size))
             if self.verbosity >= 2 and batch_idx % log_step == 0:

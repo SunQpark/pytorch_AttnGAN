@@ -20,7 +20,7 @@ logging.basicConfig(level=logging.INFO, format='')
 def arg_parse():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('-b', '--batch-size', default=32, type=int,
+    parser.add_argument('-b', '--batch-size', default=10, type=int,
                         help='mini-batch size (default: 32)')
     parser.add_argument('-e', '--epochs', default=32, type=int,
                         help='number of total epochs (default: 32)')

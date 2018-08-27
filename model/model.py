@@ -71,6 +71,7 @@ class Text_encoder(nn.Module):
         output, _ = self.bi_lstm(embedded)
         output, _ = pad_packed_sequence(output)
         output = output.transpose(0,1)
+        # print('text_encoder', output.size())
         return output
 
 
@@ -114,9 +115,9 @@ class F_0(nn.Module):
             UpsampleBlock(64 * n_g, 32 * n_g),
             UpsampleBlock(32 * n_g, 16 * n_g),
             UpsampleBlock(16 * n_g,  8 * n_g),
-            UpsampleBlock( 8 * n_g,  4 * n_g),
+            UpsampleBlock( 8 * n_g,  2 * n_g),
         )
-        self.G_0 = nn.Conv2d(4 * n_g, 3, 3, 1, 1)
+        self.G_0 = nn.Conv2d(2 * n_g, 3, 3, 1, 1)
         self.n_g = n_g
 
     def forward(self, z):
@@ -131,7 +132,7 @@ class F_0(nn.Module):
 class F_1(nn.Module):
     def __init__(self, in_ch, n_g=32):
         super(F_1, self).__init__()
-        self.res1 = ResidualBlock(8 * n_g, 4 * n_g)
+        self.res1 = ResidualBlock(4 * n_g, 4 * n_g)
         self.res2 = ResidualBlock(4 * n_g, 4 * n_g)
         self.upsample = UpsampleBlock(4 * n_g, 2 * n_g)
 
@@ -158,6 +159,7 @@ class F_attn(nn.Module):
 
         batch, ch, width, height = h.shape
         h = h.view(batch, ch, -1) # (b, f, n), flatten img features by subregions, n = wid * hei
+        # print('h_Size', h.size(), 'e_size', e.size())
         s = torch.bmm(e.transpose(1, 2), h)
         beta = F.softmax(s, dim=1) # (b, l, n), attention along word embeddings
         
@@ -167,7 +169,7 @@ class F_attn(nn.Module):
 
 
 class Discriminator(nn.Module):
-    def __init__(self, in_ch, num_downsample=4, embed_size=100, n_d=64):
+    def __init__(self, in_ch, num_downsample=4, embed_size=128, n_d=64):
         super(Discriminator, self).__init__()
         self.downsamples = nn.Sequential(*[DownsampleBlock(in_ch*2**i, in_ch*2**(i+1)) for i in range(num_downsample)])
         self.conv = nn.Conv2d(in_ch*2**num_downsample, 8*n_d, 3, 1, 1)
@@ -276,12 +278,12 @@ class Generator_module_1(nn.Module):
         mu, std, cond = self.F_ca(sen_feature)
         random_noise = torch.randn_like(cond)
         input = torch.cat((random_noise, cond), dim=1)
-        h_0, generated_1 = self.F_0(input)
+        h_0, generated_0 = self.F_0(input)
         c_0 = self.F_attn(text_embedded, h_0)
-        h_1, generated_2 = self.F_1(c_0, h_0)
+        h_1, generated_1 = self.F_1(c_0, h_0)
         c_1 = self.F_attn(text_embedded, h_1)
-        _, generated_3 = self.F_1(c_1, h_1)
-        return generated_1, generated_2, generated_3, cond, mu, std
+        _, generated_2 = self.F_1(c_1, h_1)
+        return generated_0, generated_1, generated_2, cond, mu, std
 
 class AttnGAN(nn.Module):
     def __init__(self, embedding_size, latent_size, in_ch, num_downsample, n_d, vocab_size, hidden_size, num_layer, dropout):
@@ -300,6 +302,7 @@ class AttnGAN(nn.Module):
         # h_2, x_2 = self.F_1(c_1, h_1)
         # score_2 = self.D(x_2, cond)
         # return score_1, score_2
+        pass
         
     
 if __name__ == '__main__':
