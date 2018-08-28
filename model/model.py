@@ -22,39 +22,27 @@ class UpsampleBlock(nn.Module):
         return x
 
 class DownsampleBlock(nn.Module):
-    def __init__(self, in_ch, out_ch, inst_norm=True):
+    def __init__(self, in_ch, out_ch, normalize='batch'):
         super(DownsampleBlock, self).__init__()
         self.conv = nn.Conv2d(in_ch, out_ch, 4, 2, 1)
-        if inst_norm:
-            self.inorm = nn.BatchNorm2d(out_ch)
+        if normalize == 'batch':
+            self.norm = nn.BatchNorm2d(out_ch)
+        elif normalize == 'inst':
+            self.norm = nn.InstanceNorm2d(out_ch)
+        elif normalize == 'spectral':
+            self.conv = SpectralNorm(self.conv)
+            self.norm = None
         else:
-            self.inorm = None
+            self.norm = None
         self.lrelu = nn.LeakyReLU(0.2, inplace=True)
     
     def forward(self, x_input):
         x = self.conv(x_input)
-        if self.inorm is not None:
-            x = self.inorm(x)
+        if self.norm is not None:
+            x = self.norm(x)
         x = self.lrelu(x)
         return x
 
-
-class SN_DownsampleBlock(nn.Module):
-    def __init__(self, in_ch, out_ch, inst_norm=True):
-        super(SN_DownsampleBlock, self).__init__()
-        self.conv = SpectralNorm(nn.Conv2d(in_ch, out_ch, 4, 2, 1))
-        if inst_norm:
-            self.inorm = nn.BatchNorm2d(out_ch)
-        else:
-            self.inorm = None
-        self.lrelu = nn.LeakyReLU(0.2, inplace=True)
-    
-    def forward(self, x_input):
-        x = self.conv(x_input)
-        # if self.inorm is not None:
-            # x = self.inorm(x)
-        x = self.lrelu(x)
-        return x
 class ResidualBlock(nn.Module):
     def __init__(self, in_ch, ch, stride=1):
         super(ResidualBlock, self).__init__()
@@ -187,7 +175,7 @@ class F_attn(nn.Module):
 class EB_Discriminator(nn.Module):
     def __init__(self, in_ch, num_downsample=4, embed_size=128, n_d=64):
         super(EB_Discriminator, self).__init__()
-        self.downsamples = nn.Sequential(*[DownsampleBlock(in_ch*2**i, in_ch*2**(i+1)) for i in range(num_downsample)])
+        self.downsamples = nn.Sequential(*[DownsampleBlock(in_ch*2**i, in_ch*2**(i+1), 'spectral') for i in range(num_downsample)])
         self.conv = nn.Conv2d(in_ch*2**num_downsample, 8*n_d, 3, 1, 1)
         self.fc_cond = nn.Linear(embed_size, n_d)
         self.conv_cond = nn.Conv2d(9*n_d, 1, 1, 1, 0)
@@ -226,11 +214,16 @@ class EB_Discriminator(nn.Module):
         
         return score_total
 
+
 class Discriminator(nn.Module):
-    def __init__(self, in_ch, num_downsample=4, embed_size=128, n_d=64):
+    def __init__(self, in_ch, num_downsample=4, embed_size=128, n_d=64, norm_mode='inst'):
         super(Discriminator, self).__init__()
-        self.downsamples = nn.Sequential(*[DownsampleBlock(in_ch*2**i, in_ch*2**(i+1)) for i in range(num_downsample)])
+        self.downsamples = nn.Sequential(*[DownsampleBlock(in_ch*2**i, in_ch*2**(i+1), norm_mode) for i in range(num_downsample)])
+        if norm_mode == 'spectral':
+            self.conv = SpectralNorm(nn.Conv2d(in_ch*2**num_downsample, 8*n_d, 3, 1, 1))
+        else:
         self.conv = nn.Conv2d(in_ch*2**num_downsample, 8*n_d, 3, 1, 1)
+        
         self.conv_uncond = nn.Conv2d(8*n_d, 1, 1, 1, 0)
         self.fc_cond = nn.Linear(embed_size, n_d)
         self.conv_cond = nn.Conv2d(9*n_d, 1, 1, 1, 0)
@@ -249,50 +242,6 @@ class Discriminator(nn.Module):
         # score_total = torch.cat([score_cond, score_uncond], dim=1)
         return score_total
 
-
-class SN_Discriminator(nn.Module):
-    def __init__(self, in_ch, num_downsample=4, embed_size=128, n_d=64):
-        super(SN_Discriminator, self).__init__()
-        self.downsamples = nn.Sequential(*[SN_DownsampleBlock(in_ch*2**i, in_ch*2**(i+1)) for i in range(num_downsample)])
-        self.conv = SpectralNorm(nn.Conv2d(in_ch*2**num_downsample, 8*n_d, 3, 1, 1))
-        self.fc_cond = nn.Linear(embed_size, n_d)
-        self.conv_cond = nn.Conv2d(9*n_d, 1, 1, 1, 0)
-
-    def forward(self, x_input, condition):
-        x = self.downsamples(x_input)
-        x = self.conv(x)
-        score_uncond = F.sigmoid(x)
-        
-        c = self.fc_cond(condition)
-        c = c.unsqueeze(2).unsqueeze(2)
-        c = c.expand(c.shape[0], c.shape[1], x.shape[2], x.shape[3])
-
-        concat = torch.cat([x, c], dim=1)
-        score_cond = F.sigmoid(self.conv_cond(concat))
-        score_total = torch.cat([score_cond, score_uncond], dim=1)
-        return score_total
-
-
-class DC_Discriminator(BaseModel):
-    def __init__(self, n_c=3, n_size=4):
-        super(DC_Discriminator, self).__init__()
-        self.conv1 = nn.Conv2d(3, 128, 4, 2, 1, bias=False)
-        self.bn1 = nn.BatchNorm2d(128)
-        self.conv2 = nn.Conv2d(128, 256, 4, 2, 1, bias=False)
-        self.bn2 = nn.BatchNorm2d(256)
-        self.conv3 = nn.Conv2d(256, 512, 4, 2, 1, bias=False)
-        self.bn3 = nn.BatchNorm2d(512)
-        self.conv4 = nn.Conv2d(512, 512, 3, 1, 1, bias=False)
-        self.bn4 = nn.BatchNorm2d(512)
-        self.conv5 = nn.Conv2d(512, 1, 1, 1, 0, bias=False)
-
-    def forward(self, x, cond):
-        x = F.leaky_relu_(self.bn1(self.conv1(x)), 0.2)
-        x = F.leaky_relu_(self.bn2(self.conv2(x)), 0.2)
-        x = F.leaky_relu_(self.bn3(self.conv3(x)), 0.2)
-        x = F.leaky_relu_(self.bn4(self.conv4(x)), 0.2)
-        return F.sigmoid(self.conv5(x))
-        
 
 class Matching_Score_word(nn.Module):
     def __init__(self, gamma_1, gamma_2, gamma_3):
