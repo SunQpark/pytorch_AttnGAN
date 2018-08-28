@@ -83,8 +83,10 @@ def main(args):
     # Specifying loss function, metric(s), and optimizer
     loss = gan_loss
     metrics = []
-    g_optimizer = optim.Adam(model.G.parameters(), lr=args.lr, weight_decay=args.wd, amsgrad=True, betas=(0.5, 0.999))
-    d_optimizer = optim.Adam(model.D.parameters(), lr=args.lr, weight_decay=args.wd, amsgrad=True, betas=(0.5, 0.999))
+    # g_optimizer = optim.Adam(model.G.parameters(), lr=args.lr, weight_decay=args.wd, amsgrad=True, betas=(0.5, 0.999))
+    # d_optimizer = optim.Adam(model.D.parameters(), lr=args.lr, weight_decay=args.wd, amsgrad=True, betas=(0.5, 0.999))
+    g_optimizer = optim.RMSprop(model.G.parameters(), lr=args.lr, alpha=0.99, eps=1e-08, weight_decay=args.wd)
+    d_optimizer = optim.RMSprop(model.D.parameters(), lr=args.lr, alpha=0.99, eps=1e-08, weight_decay=args.wd)
 
     # Data loader and validation split
     data_loader = CubDataLoader('../data/birds', args.batch_size, args.valid_batch_size, args.validation_split, args.validation_fold, shuffle=True, num_workers=0)

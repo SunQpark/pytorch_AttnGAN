@@ -6,6 +6,8 @@ from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 from torchvision.models import inception_v3
 sys.path.append('./')
 from base import BaseModel
+from torch import Tensor
+from torch.nn import Parameter
 # from data_loader import CocoDataLoader, CubDataLoader
 
 class UpsampleBlock(nn.Module):
@@ -38,6 +40,22 @@ class DownsampleBlock(nn.Module):
         return x
 
 
+class SN_DownsampleBlock(nn.Module):
+    def __init__(self, in_ch, out_ch, inst_norm=True):
+        super(SN_DownsampleBlock, self).__init__()
+        self.conv = SpectralNorm(nn.Conv2d(in_ch, out_ch, 4, 2, 1))
+        if inst_norm:
+            self.inorm = nn.BatchNorm2d(out_ch)
+        else:
+            self.inorm = None
+        self.lrelu = nn.LeakyReLU(0.2, inplace=True)
+    
+    def forward(self, x_input):
+        x = self.conv(x_input)
+        # if self.inorm is not None:
+            # x = self.inorm(x)
+        x = self.lrelu(x)
+        return x
 class ResidualBlock(nn.Module):
     def __init__(self, in_ch, ch, stride=1):
         super(ResidualBlock, self).__init__()
@@ -167,12 +185,76 @@ class F_attn(nn.Module):
         c = torch.sum(e.unsqueeze(2) * beta.transpose(1, 2).unsqueeze(1), dim=3)
         return c.view(batch, ch, width, height)
 
+class EB_Discriminator(nn.Module):
+    def __init__(self, in_ch, num_downsample=4, embed_size=128, n_d=64):
+        super(EB_Discriminator, self).__init__()
+        self.downsamples = nn.Sequential(*[DownsampleBlock(in_ch*2**i, in_ch*2**(i+1)) for i in range(num_downsample)])
+        self.conv = nn.Conv2d(in_ch*2**num_downsample, 8*n_d, 3, 1, 1)
+        self.fc_cond = nn.Linear(embed_size, n_d)
+        self.conv_cond = nn.Conv2d(9*n_d, 1, 1, 1, 0)
+        
+        self.embedding = nn.Linear(down_dim, 32)
+        self.fc = nn.Sequential(
+            nn.BatchNorm1d(32, 0.8),
+            nn.ReLU(inplace=True),
+            nn.Linear(32, down_dim),
+            nn.BatchNorm1d(down_dim),
+            nn.ReLU(inplace=True)
+        )
+        # Upsampling
+        self.up = nn.Sequential(
+            nn.Upsample(scale_factor=2),
+            nn.Conv2d(64, opt.channels, 3, 1, 1)
+        )
+
+
+    def forward(self, x_input, condition):
+        x = self.downsamples(x_input)
+        x = self.conv(x)
+        score_uncond = F.sigmoid(x)
+        
+        c = self.fc_cond(condition)
+        c = c.unsqueeze(2).unsqueeze(2)
+        c = c.expand(c.shape[0], c.shape[1], x.shape[2], x.shape[3])
+
+        concat = torch.cat([x, c], dim=1)
+        score_cond = F.sigmoid(self.conv_cond(concat))
+        score_total = torch.cat([score_cond, score_uncond], dim=1)
+
+        embedding = self.embedding(score_total.view(score_total.size(0), -1))
+        out = self.fc(embedding)
+        out = self.up(out.view(out.size(0), 64, self.down_size, self.down_size))
+        
+        return score_total
 
 class Discriminator(nn.Module):
     def __init__(self, in_ch, num_downsample=4, embed_size=128, n_d=64):
         super(Discriminator, self).__init__()
         self.downsamples = nn.Sequential(*[DownsampleBlock(in_ch*2**i, in_ch*2**(i+1)) for i in range(num_downsample)])
         self.conv = nn.Conv2d(in_ch*2**num_downsample, 8*n_d, 3, 1, 1)
+        self.fc_cond = nn.Linear(embed_size, n_d)
+        self.conv_cond = nn.Conv2d(9*n_d, 1, 1, 1, 0)
+
+    def forward(self, x_input, condition):
+        x = self.downsamples(x_input)
+        x = self.conv(x)
+        score_uncond = F.sigmoid(x)
+        
+        c = self.fc_cond(condition)
+        c = c.unsqueeze(2).unsqueeze(2)
+        c = c.expand(c.shape[0], c.shape[1], x.shape[2], x.shape[3])
+
+        concat = torch.cat([x, c], dim=1)
+        score_cond = F.sigmoid(self.conv_cond(concat))
+        score_total = torch.cat([score_cond, score_uncond], dim=1)
+        return score_total
+
+
+class SN_Discriminator(nn.Module):
+    def __init__(self, in_ch, num_downsample=4, embed_size=128, n_d=64):
+        super(SN_Discriminator, self).__init__()
+        self.downsamples = nn.Sequential(*[SN_DownsampleBlock(in_ch*2**i, in_ch*2**(i+1)) for i in range(num_downsample)])
+        self.conv = SpectralNorm(nn.Conv2d(in_ch*2**num_downsample, 8*n_d, 3, 1, 1))
         self.fc_cond = nn.Linear(embed_size, n_d)
         self.conv_cond = nn.Conv2d(9*n_d, 1, 1, 1, 0)
 
@@ -262,6 +344,68 @@ class Matching_Score_sent(nn.Module):
                 batch_sum_score_q[i] += torch.exp(self.gamma_3 *(self.cos(e_global[j], v_global[i])))
         
         return batch_sum_score_d, batch_sum_score_q
+
+
+class SpectralNorm(nn.Module):
+    def __init__(self, module, name='weight', power_iterations=1):
+        super(SpectralNorm, self).__init__()
+        self.module = module
+        self.name = name
+        self.power_iterations = power_iterations
+        if not self._made_params():
+            self._make_params()
+    
+    @staticmethod
+    def l2normalize(v, eps=1e-12):
+        return v / (v.norm() + eps)
+    
+    def _update_u_v(self):
+        u = getattr(self.module, self.name + "_u")
+        v = getattr(self.module, self.name + "_v")
+        w = getattr(self.module, self.name + "_bar")
+
+        height = w.data.shape[0]
+        for _ in range(self.power_iterations):
+            v.data = self.l2normalize(torch.mv(torch.t(w.view(height,-1).data), u.data))
+            u.data = self.l2normalize(torch.mv(w.view(height,-1).data, v.data))
+
+        # sigma = torch.dot(u.data, torch.mv(w.view(height,-1).data, v.data))
+        sigma = u.dot(w.view(height, -1).mv(v))
+        setattr(self.module, self.name, w / sigma.expand_as(w))
+
+    def _made_params(self):
+        try:
+            u = getattr(self.module, self.name + "_u")
+            v = getattr(self.module, self.name + "_v")
+            w = getattr(self.module, self.name + "_bar")
+            return True
+        except AttributeError:
+            return False
+
+
+    def _make_params(self):
+        w = getattr(self.module, self.name)
+
+        height = w.data.shape[0]
+        width = w.view(height, -1).data.shape[1]
+
+        u = Parameter(w.data.new(height).normal_(0, 1), requires_grad=False)
+        v = Parameter(w.data.new(width).normal_(0, 1), requires_grad=False)
+        u.data = self.l2normalize(u.data)
+        v.data = self.l2normalize(v.data)
+        w_bar = Parameter(w.data)
+
+        del self.module._parameters[self.name]
+
+        self.module.register_parameter(self.name + "_u", u)
+        self.module.register_parameter(self.name + "_v", v)
+        self.module.register_parameter(self.name + "_bar", w_bar)
+
+
+    def forward(self, *args):
+        self._update_u_v()
+        return self.module.forward(*args)
+
 
 class Generator_module_1(nn.Module):
     def __init__(self, embedding_size, latent_size,vocab_size, hidden_size, num_layer, dropout):
