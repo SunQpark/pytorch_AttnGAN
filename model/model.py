@@ -16,8 +16,7 @@ class UpsampleBlock(nn.Module):
         self.relu = nn.ReLU(inplace=True)
 
     def forward(self, x):
-        x = F.upsample(x, scale_factor=2)
-        x = self.relu(self.bn(self.conv(x)))
+        x = F.upsample(self.relu(self.bn(self.conv(x))), scale_factor=2)
         return x
 
 class DownsampleBlock(nn.Module):
@@ -173,21 +172,22 @@ class Discriminator(nn.Module):
         super(Discriminator, self).__init__()
         self.downsamples = nn.Sequential(*[DownsampleBlock(in_ch*2**i, in_ch*2**(i+1)) for i in range(num_downsample)])
         self.conv = nn.Conv2d(in_ch*2**num_downsample, 8*n_d, 3, 1, 1)
+        self.conv_uncond = nn.Conv2d(8*n_d, 1, 1, 1, 0)
         self.fc_cond = nn.Linear(embed_size, n_d)
         self.conv_cond = nn.Conv2d(9*n_d, 1, 1, 1, 0)
 
     def forward(self, x_input, condition):
         x = self.downsamples(x_input)
-        x = self.conv(x)
-        score_uncond = F.sigmoid(x)
+        x = F.relu(self.conv(x), inplace=True)
+        score_uncond = F.sigmoid(self.conv_uncond(x))
         
         c = self.fc_cond(condition)
         c = c.unsqueeze(2).unsqueeze(2)
         c = c.expand(c.shape[0], c.shape[1], x.shape[2], x.shape[3])
-
         concat = torch.cat([x, c], dim=1)
         score_cond = F.sigmoid(self.conv_cond(concat))
-        score_total = torch.cat([score_cond, score_uncond], dim=1)
+        score_total = (score_cond + score_uncond) / 2
+        # score_total = torch.cat([score_cond, score_uncond], dim=1)
         return score_total
 
 
@@ -306,12 +306,12 @@ class AttnGAN(nn.Module):
         
     
 if __name__ == '__main__':
-    #Test Image_encoder
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    model = Image_encoder()
+    model = Discriminator(3)
 
-    dummy = torch.randn((2, 3, 80, 80))
-    output = model(dummy)
+    dummy = torch.randn((2, 3, 64, 64))
+    dummy_cond = torch.randn((2, 128))
+    output = model(dummy, dummy_cond)
 
     print(output[0].shape)
     print(output[1].shape)
