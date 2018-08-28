@@ -36,7 +36,7 @@ class Trainer(BaseTrainer):
         for sent, length in zip(batch, lengths):
             sentence = ' '.join([self.index2word[idx.item()] for idx in sent[:length]])
             sentences.append(sentence)
-        return sentences        
+        return '\n\n'.join(sentences)
 
     def step_optims(self, names):
         if isinstance(names, list):
@@ -71,54 +71,113 @@ class Trainer(BaseTrainer):
 
         total_loss = 0
         total_metrics = np.zeros(len(self.metrics))
-        for batch_idx, (data, label) in enumerate(self.data_loader):
+        for batch_idx, (data, text) in enumerate(self.data_loader):
             real_label = 1
             fake_label = 0
             
             data = [d.to(self.device) for d in data]
 
-            # train D with real data
-            self.d_optimizer.zero_grad()
-            fake_x_0, fake_x_1, fake_x_2, cond, mu, std = self.model.G(label)
-            output_0 = self.model.D(data[0], cond)
-            output_1 = self.model.D(data[1], cond)
-            output_2 = self.model.D(data[2], cond)
+            text_embedded, z_input, cond, mu, std = self.model.prepare_inputs(text)
+            
+            # train F_ca according to mu, std
+            self.init_optims('F_ca')
+            loss_F_ca = self.kld(mu, std)
+            loss_F_ca.backward(retain_graph=True)
+            self.step_optims('F_ca')
+
+            # train D with real images
+            update_targets = ['D_0', 'D_1', 'D_2']
+            self.init_optims(update_targets)
+            output_0 = self.model.D_0(data[0], cond.detach())
+            output_1 = self.model.D_1(data[1], cond.detach())
+            output_2 = self.model.D_2(data[2], cond.detach())
 
             errD_real = self.loss(output_0, real_label) + self.loss(output_1, real_label) + self.loss(output_2, real_label)
             # errD_real = self.loss(output_0, real_label) + self.loss(output_1, real_label) 
             errD_real.backward(retain_graph=True)            
+            self.step_optims(update_targets)
 
-            # train D with fake data
-            output_0 = self.model.D(fake_x_0, cond)
-            output_1 = self.model.D(fake_x_1, cond)
-            output_2 = self.model.D(fake_x_2, cond)
-
-            # errD_fake = self.loss(output_0, fake_label) + self.loss(output_1, fake_label) 
-            errD_fake = self.loss(output_0, fake_label) + self.loss(output_1, fake_label) + self.loss(output_2, fake_label)
-            errD_fake.backward(retain_graph=True)
-            self.d_optimizer.step()
-
-            # train G
-            self.g_optimizer.zero_grad()
-            # errG = self.loss(output_0, real_label, mu, std) + self.loss(output_1, real_label, mu, std) 
-            errG = self.loss(output_0, real_label, mu, std) + self.loss(output_1, real_label, mu, std) + self.loss(output_2, real_label, mu, std)
-            errG.backward()
-            self.g_optimizer.step()
+            #
+            # Stage 1
+            #
+            h_0, fake_x_0 = self.model.F_0(z_input)
+            # train D_0 with fake data
+            self.init_optims('D_0')
+            score_fake_0 = self.model.D_0(fake_x_0, cond)
+            errD_fake_0 = self.loss(score_fake_0, fake_label)
+            errD_fake_0.backward(retain_graph=True)
+            self.step_optims('D_0')
             
-            loss_D = errD_fake.item() + errD_real.item()
-            loss_G = errG.item()
+            # train G_0 with fake data
+            update_targets = ['F_0', 'Text_encoder']
+            self.init_optims(update_targets)
+            errG_0 = self.loss(score_fake_0, real_label)
+            errG_0.backward(retain_graph=True)
+            self.step_optims(update_targets)
+
+            #
+            # Stage 2
+            #
+            c_0 = self.model.F_1_attn(text_embedded, h_0.detach()) # detach for isolation of graph from stage 1
+            h_1, fake_x_1 = self.model.F_1(c_0, h_0.detach()) 
+            
+            # train D_1 with fake data
+            self.init_optims('D_1')
+            score_fake_1 = self.model.D_1(fake_x_1, cond)
+            errD_fake_1 = self.loss(score_fake_1, fake_label)
+            errD_fake_1.backward(retain_graph=True)
+            self.step_optims('D_1')
+            
+            # train G_1 with fake data
+            update_targets = ['F_1_attn', 'F_1']
+            self.init_optims(update_targets)
+            errG_1 = self.loss(score_fake_1, real_label)
+            errG_1.backward(retain_graph=True)
+            self.step_optims(update_targets)
+
+            #
+            # Stage 3
+            #
+            c_1 = self.model.F_2_attn(text_embedded, h_1.detach()) # detach for isolation of graph from stage 1
+            h_2, fake_x_2 = self.model.F_1(c_1, h_1.detach()) 
+
+            # train D_2 with fake data
+            self.init_optims('D_2')
+            score_fake_2 = self.model.D_2(fake_x_2, cond)
+            errD_fake_2 = self.loss(score_fake_2, fake_label)
+            errD_fake_2.backward(retain_graph=True)
+            self.step_optims('D_2')
+            
+            # train G_2 with fake data
+            update_targets = ['F_2_attn', 'F_2', 'Text_encoder']
+            self.init_optims(update_targets)
+            errG_2 = self.loss(score_fake_2, real_label)
+            errG_2.backward(retain_graph=True)
+            self.step_optims(update_targets)
+            # update step ends
+            
+            loss_D = errD_fake_0.item() + errD_fake_1.item() + errD_fake_2.item() + errD_real.item()
+            loss_G = errG_0.item() + errG_1.item() + errG_2.item()
             loss = loss_G + loss_D
 
-
             self.train_iter += 1
-            self.writer.add_scalar(f'{self.training_name}/Train/D_loss', loss_D, self.train_iter)
-            self.writer.add_scalar(f'{self.training_name}/Train/G_loss', loss_G, self.train_iter)
+            self.writer.add_scalar(f'{self.training_name}/Train/global/D_loss_real', errD_real.item(), self.train_iter)
+            self.writer.add_scalar(f'{self.training_name}/Train/global/F_ca_loss', loss_F_ca.item(), self.train_iter)
+
+            self.writer.add_scalar(f'{self.training_name}/Train/stage0/D_loss_fake', errD_fake_0.item(), self.train_iter)
+            self.writer.add_scalar(f'{self.training_name}/Train/stage1/D_loss_fake', errD_fake_1.item(), self.train_iter)
+            self.writer.add_scalar(f'{self.training_name}/Train/stage2/D_loss_fake', errD_fake_2.item(), self.train_iter)
+
+            self.writer.add_scalar(f'{self.training_name}/Train/stage0/G_loss', errG_0.item(), self.train_iter)
+            self.writer.add_scalar(f'{self.training_name}/Train/stage1/G_loss', errG_1.item(), self.train_iter)
+            self.writer.add_scalar(f'{self.training_name}/Train/stage2/G_loss', errG_2.item(), self.train_iter)
+
             if self.train_iter % 20 == 0:
                 # self.writer.add_image('image/original', make_grid(data[0], normalize=True), self.train_iter)
-                self.writer.add_image('image/generated_0', make_grid(fake_x_0, normalize=True), self.train_iter)
-                self.writer.add_image('image/generated_1', make_grid(fake_x_1, normalize=True), self.train_iter)
-                self.writer.add_image('image/generated_2', make_grid(fake_x_2, normalize=True), self.train_iter)
-                self.writer.add_text('text', '\n\n'.join(self.decode_sentence(label)), self.train_iter) # this is not working yet
+                self.writer.add_image('image/generated_0', make_grid(fake_x_0, normalize=True, nrow=4), self.train_iter)
+                self.writer.add_image('image/generated_1', make_grid(fake_x_1, normalize=True, nrow=4), self.train_iter)
+                self.writer.add_image('image/generated_2', make_grid(fake_x_2, normalize=True, nrow=4), self.train_iter)
+                self.writer.add_text('text', self.decode_sentence(text), self.train_iter)
             total_loss += loss
             log_step = int(np.sqrt(self.batch_size))
             if self.verbosity >= 2 and batch_idx % log_step == 0:

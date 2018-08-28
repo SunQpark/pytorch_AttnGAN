@@ -134,14 +134,15 @@ class F_0(nn.Module):
         return h_0, output
 
 
-class F_1(nn.Module):
+class F_i(nn.Module):
     def __init__(self, in_ch, n_g=32):
-        super(F_1, self).__init__()
+        super(F_i, self).__init__()
+        # 2*n_g(F_0 output) + 2*n_g(F_attn output)
         self.res1 = ResidualBlock(4 * n_g, 4 * n_g)
         self.res2 = ResidualBlock(4 * n_g, 4 * n_g)
         self.upsample = UpsampleBlock(4 * n_g, 2 * n_g)
 
-        self.G_1 = nn.Conv2d(2 * n_g, 3, 3, 1, 1)
+        self.G_i = nn.Conv2d(2 * n_g, 3, 3, 1, 1)
 
     def forward(self, h_0, c):
         joined = torch.cat([h_0, c], dim=1)
@@ -149,7 +150,7 @@ class F_1(nn.Module):
         h = self.res2(h)
         h = self.upsample(h)
         
-        x = (F.tanh(self.G_1(h)) + 1) / 2
+        x = (F.tanh(self.G_i(h)) + 1) / 2
         return h, x
 
 
@@ -338,8 +339,8 @@ class SpectralNorm(nn.Module):
         height = w.data.shape[0]
         width = w.view(height, -1).data.shape[1]
 
-        u = Parameter(w.data.new(height).normal_(0, 1), requires_grad=False)
-        v = Parameter(w.data.new(width).normal_(0, 1), requires_grad=False)
+        u = Parameter(w.data.new(height).normal_(0, 1))#, requires_grad=False)
+        v = Parameter(w.data.new(width).normal_(0, 1))#, requires_grad=False)
         u.data = self.l2normalize(u.data)
         v.data = self.l2normalize(v.data)
         w_bar = Parameter(w.data)
@@ -350,52 +351,50 @@ class SpectralNorm(nn.Module):
         self.module.register_parameter(self.name + "_v", v)
         self.module.register_parameter(self.name + "_bar", w_bar)
 
-
     def forward(self, *args):
         self._update_u_v()
         return self.module.forward(*args)
 
 
-class Generator_module_1(nn.Module):
-    def __init__(self, embedding_size, latent_size,vocab_size, hidden_size, num_layer, dropout):
-        super(Generator_module_1, self).__init__()
-        self.F_ca = F_ca(embedding_size, latent_size)
-        self.F_0 = F_0(latent_size)
+class AttnGAN(nn.Module):
+    def __init__(self, embedding_size, latent_size, in_ch, vocab_size, hidden_size, num_layer, dropout):
+        super(AttnGAN, self).__init__()
         self.Text_encoder = Text_encoder(vocab_size, embedding_size, hidden_size, num_layer, dropout)
-        self.F_1 = F_1(latent_size)
-        self.F_attn = F_attn(embedding_size, hidden_size)
+        self.F_ca = F_ca(embedding_size, latent_size)
+
+        self.F_0 = F_0(latent_size)
+        self.D_0 = Discriminator(in_ch, 4, norm_mode='inst') # for  64 by  64 output of stage 1
+
+        self.F_1_attn = F_attn(embedding_size, hidden_size)
+        self.F_1 = F_i(latent_size)
+        self.D_1 = Discriminator(in_ch, 5, norm_mode='inst') # for 128 by 128 output of stage 2
+
+        self.F_2_attn = F_attn(embedding_size, hidden_size)
+        self.F_2 = F_i(latent_size)
+        self.D_2 = Discriminator(in_ch, 6, norm_mode='inst') # for 256 by 256 output of stage 3
         
     def forward(self, label):
-        text_embedded = self.Text_encoder(label)
-        sen_feature = torch.mean(text_embedded, dim = 1)
+        text_embedded, z_input, cond, mu, std = self.prepare_inputs(label)
+
+        h_0, output_0 = self.F_0(z_input)
+
+        c_0 = self.F_1_attn(text_embedded, h_0)
+        h_1, output_1 = self.F_1(c_0, h_0)
+
+        c_1 = self.F_2_attn(text_embedded, h_1)
+        _, output_2 = self.F_2(c_1, h_1)
+
+        fake_images = [output_0, output_1, output_2]
+        return fake_images, cond, mu, std
+
+    def prepare_inputs(self, text_label):
+        text_embedded = self.Text_encoder(text_label)
+        sen_feature = torch.mean(text_embedded, dim=1)
         mu, std, cond = self.F_ca(sen_feature)
+
         random_noise = torch.randn_like(cond)
-        input = torch.cat((random_noise, cond), dim=1)
-        h_0, generated_0 = self.F_0(input)
-        c_0 = self.F_attn(text_embedded, h_0)
-        h_1, generated_1 = self.F_1(c_0, h_0)
-        c_1 = self.F_attn(text_embedded, h_1)
-        _, generated_2 = self.F_1(c_1, h_1)
-        return generated_0, generated_1, generated_2, cond, mu, std
-
-class AttnGAN(nn.Module):
-    def __init__(self, embedding_size, latent_size, in_ch, num_downsample, n_d, vocab_size, hidden_size, num_layer, dropout):
-        super(AttnGAN, self).__init__()
-        self.G = Generator_module_1(embedding_size, latent_size, vocab_size, hidden_size, num_layer, dropout)
-        self.D = Discriminator(in_ch, 4)
-
-
-    def forward(self, label):
-        # text_embedded = self.text_encoder(label)
-        # generated, cond, mu, std, h_0 = self.G(label)
-        # c_0 = self.F_attn(text_embedded, h_0)
-        # h_1, x_1 = self.F_1(c_0, h_0)
-        # score_1= self.D(x_1, cond)
-        # c_1 = self.F_attn(text_embedded, h_1)
-        # h_2, x_2 = self.F_1(c_1, h_1)
-        # score_2 = self.D(x_2, cond)
-        # return score_1, score_2
-        pass
+        z_input = torch.cat((random_noise, cond), dim=1)
+        return text_embedded, z_input, cond, mu, std
         
     
 if __name__ == '__main__':

@@ -69,13 +69,7 @@ def main(args):
     device = torch.device('cuda:0' if torch.cuda.is_available() and not args.no_cuda else 'cpu')
     # mp.set_start_method('spawn')
     # Model
-    # G = DC_Generator(100, n_size=2)
-    # D = DC_Discriminator(100, n_size=2)
-    model = AttnGAN(embedding_size= args.embedding_size, latent_size = args.latent_size, in_ch=args.in_ch, num_downsample=4, n_d =64, vocab_size = args.vocab_size, hidden_size = args.hidden_size, num_layer=1, dropout=args.dropout)
-    # model = (G, D)
-    # print('generator: \n', G)
-    # print('discriminator: \n', D)
-    # model.summary()
+    model = AttnGAN(embedding_size=args.embedding_size, latent_size=args.latent_size, in_ch=args.in_ch, vocab_size=args.vocab_size, hidden_size=args.hidden_size, num_layer=1, dropout=args.dropout)
 
     # A logger to store training process information
     train_logger = Logger()
