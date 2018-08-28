@@ -1,18 +1,16 @@
 import argparse
 import logging
 import torch
-import torch.nn as nn
 import torch.optim as optim
-from torch.optim.lr_scheduler import ReduceLROnPlateau
+# from torch.optim.lr_scheduler import ReduceLROnPlateau
 from model.model import AttnGAN 
-from model.model import Text_encoder
 from model.loss import gan_loss, kld_loss
 # from model.metric import accuracy
 from data_loader import CocoDataLoader, CubDataLoader
 from trainer import Trainer
 from logger import Logger
 from tensorboardX import SummaryWriter
-import torch.multiprocessing as mp
+# import torch.multiprocessing as mp
 from datetime import datetime
 
 logging.basicConfig(level=logging.INFO, format='')
@@ -70,7 +68,7 @@ def main(args):
     # mp.set_start_method('spawn')
     # Model
     model = AttnGAN(embedding_size=args.embedding_size, latent_size=args.latent_size, in_ch=args.in_ch, vocab_size=args.vocab_size, hidden_size=args.hidden_size, num_layer=1, dropout=args.dropout)
-
+    
     # A logger to store training process information
     train_logger = Logger()
 
@@ -80,12 +78,6 @@ def main(args):
         'kld' : kld_loss,
     }
     metrics = []
-    # g_optimizer = optim.Adam(model.G.parameters(), lr=args.lr, weight_decay=args.wd, amsgrad=True, betas=(0.5, 0.999))
-    # d_optimizer = optim.Adam(model.D.parameters(), lr=args.lr, weight_decay=args.wd, amsgrad=True, betas=(0.5, 0.999))
-    
-    # g_optimizer = optim.RMSprop(model.G.parameters(), lr=args.lr, alpha=0.99, eps=1e-08, weight_decay=args.wd)
-    # d_optimizer = optim.RMSprop(model.D.parameters(), lr=args.lr, alpha=0.99, eps=1e-08, weight_decay=args.wd)
-
     optimizer = {
         # name : optim.Adam(module.parameters(), lr=args.lr, weight_decay=args.wd, amsgrad=True, betas=(0.5, 0.999))
         name : optim.RMSprop(module.parameters(), lr=args.lr, alpha=0.99, eps=1e-08, weight_decay=args.wd)

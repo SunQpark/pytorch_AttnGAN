@@ -75,8 +75,7 @@ class Text_encoder(nn.Module):
         embedded = pack_padded_sequence(embedded, lengths)
         output, _ = self.bi_lstm(embedded)
         output, _ = pad_packed_sequence(output)
-        output = output.transpose(0,1)
-        # print('text_encoder', output.size())
+        output = output.t()
         return output
 
 
@@ -122,6 +121,7 @@ class F_0(nn.Module):
             UpsampleBlock(16 * n_g,  8 * n_g),
             UpsampleBlock( 8 * n_g,  2 * n_g),
         )
+        
         self.G_0 = nn.Conv2d(2 * n_g, 3, 3, 1, 1)
         self.n_g = n_g
 
@@ -165,13 +165,13 @@ class F_attn(nn.Module):
 
         batch, ch, width, height = h.shape
         h = h.view(batch, ch, -1) # (b, f, n), flatten img features by subregions, n = wid * hei
-        # print('h_Size', h.size(), 'e_size', e.size())
         s = torch.bmm(e.transpose(1, 2), h)
         beta = F.softmax(s, dim=1) # (b, l, n), attention along word embeddings
         
         # e:(b, f, 1, l) * beta:(b, 1, n, l) 
         c = torch.sum(e.unsqueeze(2) * beta.transpose(1, 2).unsqueeze(1), dim=3)
         return c.view(batch, ch, width, height)
+
 
 class EB_Discriminator(nn.Module):
     def __init__(self, in_ch, num_downsample=4, embed_size=128, n_d=64):
@@ -211,8 +211,7 @@ class EB_Discriminator(nn.Module):
 
         embedding = self.embedding(score_total.view(score_total.size(0), -1))
         out = self.fc(embedding)
-        out = self.up(out.view(out.size(0), 64, self.down_size, self.down_size))
-        
+        out = self.up(out.view(out.size(0), 64, self.down_size, self.down_size))        
         return score_total
 
 
@@ -223,7 +222,7 @@ class Discriminator(nn.Module):
         if norm_mode == 'spectral':
             self.conv = SpectralNorm(nn.Conv2d(in_ch*2**num_downsample, 8*n_d, 3, 1, 1))
         else:
-        self.conv = nn.Conv2d(in_ch*2**num_downsample, 8*n_d, 3, 1, 1)
+            self.conv = nn.Conv2d(in_ch*2**num_downsample, 8*n_d, 3, 1, 1)
         
         self.conv_uncond = nn.Conv2d(8*n_d, 1, 1, 1, 0)
         self.fc_cond = nn.Linear(embed_size, n_d)
@@ -253,23 +252,24 @@ class Matching_Score_word(nn.Module):
         self.gamma_3 = gamma_3
         
     def batch_score(self, e, v):
-        s = torch.mm(e.transpose(0,1), v) #(T, 289)
+        s = torch.mm(e.t(), v) #(T, 289)
         s_norm = F.softmax(s, dim=1) #( T, 289) 
         alpha = F.softmax(self.gamma_1 * s_norm, dim=0)# (T, 289)
         
-        alpha = torch.unsqueeze(alpha, dim = 1) # (T, 1, 289)
-        v= torch.unsqueeze(v, dim=0) # (1, D, 289)
+        alpha = torch.unsqueeze(alpha, dim=1) # (T, 1, 289)
+        v = torch.unsqueeze(v, dim=0) # (1, D, 289)
         c = torch.sum(alpha * v, dim=2) # (T, D)
         
-        R = self.cos(c.transpose(0,1), e) #(T)
+        R = self.cos(c.t(), e) #(T)
         match_score = torch.log(torch.exp(self.gamma_2 * R).sum(dim=0)).pow(1/self.gamma_2) #scalar
         return match_score
 
     def forward(self, e, v):
         batch_size = e.shape[0]
-        batch_sum_score_d = torch.zeros(batch_size, device = device)
-        batch_sum_score_q = torch.zeros(batch_size, device = device)
+        batch_sum_score_d = torch.zeros(batch_size, device=device)
+        batch_sum_score_q = torch.zeros(batch_size, device=device)
 
+        # TODO: vertorize this double for loop
         for i in range(batch_size):
             for j in range(batch_size):
                 batch_sum_score_d[i] += self.batch_score(e[i], v[j])
@@ -332,7 +332,6 @@ class SpectralNorm(nn.Module):
         except AttributeError:
             return False
 
-
     def _make_params(self):
         w = getattr(self.module, self.name)
 
@@ -372,7 +371,7 @@ class AttnGAN(nn.Module):
         self.F_2_attn = F_attn(embedding_size, hidden_size)
         self.F_2 = F_i(latent_size)
         self.D_2 = Discriminator(in_ch, 6, norm_mode='inst') # for 256 by 256 output of stage 3
-        
+    
     def forward(self, label):
         text_embedded, z_input, cond, mu, std = self.prepare_inputs(label)
 
@@ -386,7 +385,7 @@ class AttnGAN(nn.Module):
 
         fake_images = [output_0, output_1, output_2]
         return fake_images, cond, mu, std
-
+        
     def prepare_inputs(self, text_label):
         text_embedded = self.Text_encoder(text_label)
         sen_feature = torch.mean(text_embedded, dim=1)
@@ -395,8 +394,8 @@ class AttnGAN(nn.Module):
         random_noise = torch.randn_like(cond)
         z_input = torch.cat((random_noise, cond), dim=1)
         return text_embedded, z_input, cond, mu, std
-        
-    
+
+
 if __name__ == '__main__':
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     model = Discriminator(3)
