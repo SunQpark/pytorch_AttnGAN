@@ -14,7 +14,6 @@ class BaseTrainer:
                  train_logger=None, writer=None, monitor='loss', monitor_mode='min'):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.model = model
-        self.loss = loss
         self.metrics = metrics
 
         self.data_loader = data_loader
@@ -22,7 +21,7 @@ class BaseTrainer:
         self.valid_data_loader = valid_data_loader
         self.valid = True if self.valid_data_loader is not None else False
 
-        self.g_optimizer, self.d_optimizer =  optimizer
+        self.optimizer =  optimizer
         self.epochs = epochs
         self.save_freq = save_freq
         self.verbosity = verbosity
@@ -98,10 +97,15 @@ class BaseTrainer:
             'logger': self.train_logger,
             'arch': arch,
             'state_dict': self.model.state_dict(),
-            'g_optimizer': self.g_optimizer.state_dict(),
-            'd_optimizer': self.d_optimizer.state_dict(),
             'monitor_best': self.monitor_best,
         }
+
+        if isinstance(self.optimizer, dict):
+            for k, opt in self.optimizer.items():
+                state[f'{k}_optimizer'] = opt.state_dict()
+        else: 
+            state['optimizer'] = self.optimizer.state_dict()
+
         filename = os.path.join(self.checkpoint_dir,
                                 'checkpoint_epoch{:02d}_loss_{:.5f}.pt'.format(epoch, loss))
         torch.save(state, filename)
@@ -126,17 +130,22 @@ class BaseTrainer:
 
         self.monitor_best = checkpoint['monitor_best']
         self.model.load_state_dict(checkpoint['state_dict'])
-        self.g_optimizer.load_state_dict(checkpoint['g_optimizer'])
-        self.d_optimizer.load_state_dict(checkpoint['d_optimizer'])
-
-        for state in self.g_optimizer.state.values():
-            for k, v in state.items():
-                if isinstance(v, torch.Tensor):
-                    state[k] = v.to(self.device)
-        for state in self.d_optimizer.state.values():
-            for k, v in state.items():
-                if isinstance(v, torch.Tensor):
-                    state[k] = v.to(self.device)
+        
+        if isinstance(self.optimizer, dict):
+            for k, opt in self.optimizer.items():
+                opt.load_state_dict(checkpoint[f'{k}_optimizer'])
+                # amsgrad fix
+                for state in opt.state.values():
+                    for key, v in state.items():
+                        if isinstance(v, torch.Tensor):
+                            state[key] = v.to(self.device)
+        else: 
+            self.optimizer.load_state_dict(checkpoint['optimizer'])
+            # amsgrad fix
+            for state in self.optimizer.state.values():
+                for k, v in state.items():
+                    if isinstance(v, torch.Tensor):
+                        state[k] = v.to(self.device)
                     
         self.train_logger = checkpoint['logger']
         self.logger.info("Checkpoint '{}' (epoch {}) loaded".format(resume_path, self.start_epoch))

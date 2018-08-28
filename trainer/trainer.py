@@ -20,6 +20,8 @@ class Trainer(BaseTrainer):
                                       save_dir, save_freq, resume, verbosity, training_name,
                                       device, train_logger, writer, monitor, monitor_mode)
         self.scheduler = lr_scheduler
+        self.loss = loss['gan']
+        self.kld = loss['kld']
 
         word2index = self.data_loader.dataset.preprocessed.word2index
         self.index2word = {v:k for k, v in word2index.items()}
@@ -35,6 +37,20 @@ class Trainer(BaseTrainer):
             sentence = ' '.join([self.index2word[idx.item()] for idx in sent[:length]])
             sentences.append(sentence)
         return sentences        
+
+    def step_optims(self, names):
+        if isinstance(names, list):
+            for k in names:
+                self.optimizer[k].step()
+        else:
+            self.optimizer[names].step()
+    
+    def init_optims(self, names):
+        if isinstance(names, list):
+            for k in names:
+                self.optimizer[k].zero_grad()
+        else:
+            self.optimizer[names].zero_grad()
 
     def _train_epoch(self, epoch):
         """

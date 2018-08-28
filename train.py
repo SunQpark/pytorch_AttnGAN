@@ -6,7 +6,7 @@ import torch.optim as optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from model.model import AttnGAN 
 from model.model import Text_encoder
-from model.loss import gan_loss
+from model.loss import gan_loss, kld_loss
 # from model.metric import accuracy
 from data_loader import CocoDataLoader, CubDataLoader
 from trainer import Trainer
@@ -81,12 +81,22 @@ def main(args):
     train_logger = Logger()
 
     # Specifying loss function, metric(s), and optimizer
-    loss = gan_loss
+    loss = {
+        'gan' : gan_loss,
+        'kld' : kld_loss,
+    }
     metrics = []
     # g_optimizer = optim.Adam(model.G.parameters(), lr=args.lr, weight_decay=args.wd, amsgrad=True, betas=(0.5, 0.999))
     # d_optimizer = optim.Adam(model.D.parameters(), lr=args.lr, weight_decay=args.wd, amsgrad=True, betas=(0.5, 0.999))
-    g_optimizer = optim.RMSprop(model.G.parameters(), lr=args.lr, alpha=0.99, eps=1e-08, weight_decay=args.wd)
-    d_optimizer = optim.RMSprop(model.D.parameters(), lr=args.lr, alpha=0.99, eps=1e-08, weight_decay=args.wd)
+    
+    # g_optimizer = optim.RMSprop(model.G.parameters(), lr=args.lr, alpha=0.99, eps=1e-08, weight_decay=args.wd)
+    # d_optimizer = optim.RMSprop(model.D.parameters(), lr=args.lr, alpha=0.99, eps=1e-08, weight_decay=args.wd)
+
+    optimizer = {
+        # name : optim.Adam(module.parameters(), lr=args.lr, weight_decay=args.wd, amsgrad=True, betas=(0.5, 0.999))
+        name : optim.RMSprop(module.parameters(), lr=args.lr, alpha=0.99, eps=1e-08, weight_decay=args.wd)
+        for name, module in model.named_children()
+    }
 
     # Data loader and validation split
     data_loader = CubDataLoader('../data/birds', args.batch_size, args.valid_batch_size, args.validation_split, args.validation_fold, shuffle=True, num_workers=0)
@@ -100,7 +110,7 @@ def main(args):
     trainer = Trainer(model, loss, metrics,
                       data_loader=data_loader,
                       valid_data_loader=valid_data_loader,
-                      optimizer=(g_optimizer,d_optimizer),
+                      optimizer=optimizer,
                       epochs=args.epochs,
                       train_logger=train_logger,
                       writer=writer,
@@ -111,7 +121,7 @@ def main(args):
                       training_name=training_name,
                       device=device,
                       monitor='loss',
-                      monitor_mode='max')
+                      monitor_mode='min')
 
     # Start training!
     trainer.train()
