@@ -54,7 +54,7 @@ class Trainer(BaseTrainer):
 
     def reshape_output(self, image):
         transform = trasforms.Compose([transforms.ToPILImage(), transforms.Resize(80), transforms.ToTensor()])
-        
+
     def _train_epoch(self, epoch):
         """
         Training logic for an epoch

@@ -378,7 +378,8 @@ class AttnGAN(nn.Module):
         self.F_2_attn = F_attn(embedding_size, hidden_size)
         self.F_2 = F_i(latent_size)
         self.D_2 = Discriminator(in_ch, 6, norm_mode='spectral') # for 256 by 256 output of stage 3
-    
+        self.image_encoder = Image_encoder() 
+
     def forward(self, label):
         text_embedded, z_input, cond, mu, std = self.prepare_inputs(label)
 
@@ -389,7 +390,7 @@ class AttnGAN(nn.Module):
 
         c_1 = self.F_2_attn(text_embedded, h_1)
         _, output_2 = self.F_2(c_1, h_1)
-
+        
         fake_images = [output_0, output_1, output_2]
         return fake_images, cond, mu, std
         
