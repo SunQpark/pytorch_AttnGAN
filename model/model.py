@@ -224,20 +224,26 @@ class Discriminator(nn.Module):
         else:
             self.conv = nn.Conv2d(in_ch*2**num_downsample, 8*n_d, 3, 1, 1)
         
-        self.conv_uncond = nn.Conv2d(8*n_d, 1, 1, 1, 0)
-        self.fc_cond = nn.Linear(embed_size, n_d)
-        self.conv_cond = nn.Conv2d(9*n_d, 1, 1, 1, 0)
+        self.fc_uncond = nn.Linear(4*4*8*n_d, 1)
+        self.fc_cond_1 = nn.Linear(embed_size, n_d)
+        self.fc_cond_2 = nn.Linear(4*4*8*n_d, n_d)
+        self.fc_cond_3 = nn.Linear(2*n_d, 1)
+
+        # self.conv_uncond = nn.Conv2d(8*n_d, 1, 1, 1, 0)
+
+        # self.conv_cond = nn.Conv2d(9*n_d, 1, 1, 1, 0)
 
     def forward(self, x_input, condition):
         x = self.downsamples(x_input)
         x = F.relu(self.conv(x), inplace=True)
         score_uncond = F.sigmoid(self.conv_uncond(x))
-        
-        c = self.fc_cond(condition)
-        c = c.unsqueeze(2).unsqueeze(2)
-        c = c.expand(c.shape[0], c.shape[1], x.shape[2], x.shape[3])
+
+        c = self.fc_cond_1(condition) #n_d *1
+        x = self.fc_cond_2(x) # n_d *1
+        # c = c.unsqueeze(2).unsqueeze(2)
+        # c = c.expand(c.shape[0], c.shape[1], x.shape[2], x.shape[3])
         concat = torch.cat([x, c], dim=1)
-        score_cond = F.sigmoid(self.conv_cond(concat))
+        score_cond = F.sigmoid(self.fc_cond_3(concat))
         score_total = (score_cond + score_uncond) / 2
         # score_total = torch.cat([score_cond, score_uncond], dim=1)
         return score_total
@@ -362,15 +368,15 @@ class AttnGAN(nn.Module):
         self.F_ca = F_ca(embedding_size, latent_size)
 
         self.F_0 = F_0(latent_size)
-        self.D_0 = Discriminator(in_ch, 4, norm_mode='inst') # for  64 by  64 output of stage 1
+        self.D_0 = Discriminator(in_ch, 4, norm_mode='spectral') # for  64 by  64 output of stage 1
 
         self.F_1_attn = F_attn(embedding_size, hidden_size)
         self.F_1 = F_i(latent_size)
-        self.D_1 = Discriminator(in_ch, 5, norm_mode='inst') # for 128 by 128 output of stage 2
+        self.D_1 = Discriminator(in_ch, 5, norm_mode='spectral') # for 128 by 128 output of stage 2
 
         self.F_2_attn = F_attn(embedding_size, hidden_size)
         self.F_2 = F_i(latent_size)
-        self.D_2 = Discriminator(in_ch, 6, norm_mode='inst') # for 256 by 256 output of stage 3
+        self.D_2 = Discriminator(in_ch, 6, norm_mode='spectral') # for 256 by 256 output of stage 3
     
     def forward(self, label):
         text_embedded, z_input, cond, mu, std = self.prepare_inputs(label)
