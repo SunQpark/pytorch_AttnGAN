@@ -52,8 +52,12 @@ class Trainer(BaseTrainer):
         else:
             self.optimizer[names].zero_grad()
 
-    def reshape_output(self, image):
-        transform = trasforms.Compose([transforms.ToPILImage(), transforms.Resize(80), transforms.ToTensor()])
+    def reshape_output(self, image_batch):
+        transform = transforms.Compose([transforms.ToPILImage(), transforms.Resize(80), transforms.ToTensor()])
+        result = []
+        for img in torch.unbind(image_batch, dim=0):
+            result.append(transform(img))
+        return torch.cat(result, dim=0)
         
     def _train_epoch(self, epoch):
         """
