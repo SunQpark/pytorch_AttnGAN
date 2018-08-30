@@ -22,6 +22,7 @@ class Trainer(BaseTrainer):
         self.scheduler = lr_scheduler
         self.loss = loss['gan']
         self.kld = loss['kld']
+        self.damsm_loss = loss['damsm']
 
         word2index = self.data_loader.dataset.preprocessed.word2index
         self.index2word = {v:k for k, v in word2index.items()}
@@ -52,9 +53,13 @@ class Trainer(BaseTrainer):
         else:
             self.optimizer[names].zero_grad()
 
-    def reshape_output(self, image):
-        transform = trasforms.Compose([transforms.ToPILImage(), transforms.Resize(80), transforms.ToTensor()])
-
+    def reshape_output(self, image_batch):
+        transform = transforms.Compose([transforms.ToPILImage(), transforms.Resize(80), transforms.ToTensor()])
+        result = []
+        for img in torch.unbind(image_batch, dim=0):
+            result.append(transform(img))
+        return torch.cat(result, dim=0)
+        
     def _train_epoch(self, epoch):
         """
         Training logic for an epoch
@@ -80,7 +85,7 @@ class Trainer(BaseTrainer):
             
             data = [d.to(self.device) for d in data]
 
-            text_embedded, z_input, cond, mu, std = self.model.prepare_inputs(text)
+            text_embedded, z_input, cond, mu, std, sen_feature = self.model.prepare_inputs(text)
             
             # train F_ca according to mu, std
             self.init_optims('F_ca')
@@ -176,15 +181,27 @@ class Trainer(BaseTrainer):
                 errG_2.backward(retain_graph=True)
                 self.step_optims(update_targets)
                 
+                update_targets = ['Image_encoder', 'Text_encoder']
+                reshaped_output = self.reshape_output(fake_x_2)
+                local_feature, global_feature = self.model.image_encoder(reshaped_output)
+                b, c, _, _ = local_feature.shape
+                word_score_1, word_score_2 = self.model.matching_score_word(text_embedded, local_feature.view(b, c, -1))
+                sent_score_1, sent_score_2 = self.model.matching_score_sent(sen_feature, global_feature)
+                loss_damsm = self.damsm_loss(word_score_1, 10) + self.damsm_loss(word_score_2, 10) + self.damsm_loss(sent_score_1, 10) + self.damsm_loss(sent_score_2, 10)
+                loss_damsm.backward(retain_graph=True)
+                
+
                 loss_D = errD_fake_0.item() + errD_fake_1.item() + errD_fake_2.item() + errD_real_0.item() + errD_real.item()
                 loss_G = errG_0.item() + errG_1.item() + errG_2.item()
-                loss = loss_G + loss_D
+                loss = loss_G + loss_D 
 
                 self.writer.add_scalar(f'{self.training_name}/Train/stage1/D_loss_fake', errD_fake_1.item(), self.train_iter)
                 self.writer.add_scalar(f'{self.training_name}/Train/stage2/D_loss_fake', errD_fake_2.item(), self.train_iter)
 
                 self.writer.add_scalar(f'{self.training_name}/Train/stage1/G_loss', errG_1.item(), self.train_iter)
                 self.writer.add_scalar(f'{self.training_name}/Train/stage2/G_loss', errG_2.item(), self.train_iter)
+                
+                self.writer.add_scalar(f'{self.training_name}/Train/stage3/damsm_loss', loss_damsm.item(), self.train_iter)
 
                 if self.train_iter % 20 == 0:
                     self.writer.add_image('image/generated_0', make_grid(fake_x_0, normalize=True, nrow=4), self.train_iter)

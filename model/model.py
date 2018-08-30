@@ -80,13 +80,13 @@ class Text_encoder(nn.Module):
 
 
 class Image_encoder(nn.Module):
-    def __init__(self):
+    def __init__(self, embedding_size):
         super(Image_encoder, self).__init__()
         inception = inception_v3(pretrained=True)
         inception.eval()
         self.layers1 = nn.Sequential(*list(inception.children())[:-5]) # to mixed_6e
         self.layers2 = nn.Sequential(*list(inception.children())[-4:-1])
-
+        self.fc = nn.Linear(2048, embedding_size)
     def forward(self, x):
         x = self.layers1(x) # input size: (80, 80)
         output = self.layers2(x)
@@ -378,8 +378,10 @@ class AttnGAN(nn.Module):
         self.F_2_attn = F_attn(embedding_size, hidden_size)
         self.F_2 = F_i(latent_size)
         self.D_2 = Discriminator(in_ch, 6, norm_mode='spectral') # for 256 by 256 output of stage 3
-        self.image_encoder = Image_encoder() 
-
+        self.image_encoder = Image_encoder(embedding_size) 
+        self.matching_score_word = Matching_Score_word(5, 5, 10)
+        self.matching_score_sent = Matching_Score_sent(10)
+        
     def forward(self, label):
         text_embedded, z_input, cond, mu, std = self.prepare_inputs(label)
 
@@ -390,7 +392,7 @@ class AttnGAN(nn.Module):
 
         c_1 = self.F_2_attn(text_embedded, h_1)
         _, output_2 = self.F_2(c_1, h_1)
-        
+
         fake_images = [output_0, output_1, output_2]
         return fake_images, cond, mu, std
         
@@ -401,7 +403,7 @@ class AttnGAN(nn.Module):
 
         random_noise = torch.randn_like(cond)
         z_input = torch.cat((random_noise, cond), dim=1)
-        return text_embedded, z_input, cond, mu, std
+        return text_embedded, z_input, cond, mu, std, sen_feature
 
 
 if __name__ == '__main__':

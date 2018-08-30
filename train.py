@@ -4,7 +4,7 @@ import torch
 import torch.optim as optim
 # from torch.optim.lr_scheduler import ReduceLROnPlateau
 from model.model import AttnGAN
-from model.loss import gan_loss, kld_loss
+from model.loss import gan_loss, kld_loss, DAMSM_loss
 # from model.metric import accuracy
 from data_loader import CocoDataLoader, CubDataLoader
 from trainer import Trainer
@@ -76,6 +76,7 @@ def main(args):
     loss = {
         'gan' : gan_loss,
         'kld' : kld_loss,
+        'damsm' : DAMSM_loss
     }
     metrics = []
     optimizer = {
