@@ -3,7 +3,7 @@ import torch
 from torch.nn.utils.rnn import pad_packed_sequence
 from torchvision.utils import make_grid
 from base import BaseTrainer
-
+from torchvision import transforms
 
 class Trainer(BaseTrainer):
     """
@@ -52,6 +52,9 @@ class Trainer(BaseTrainer):
         else:
             self.optimizer[names].zero_grad()
 
+    def reshape_output(self, image):
+        transform = trasforms.Compose([transforms.ToPILImage(), transforms.Resize(80), transforms.ToTensor()])
+        
     def _train_epoch(self, epoch):
         """
         Training logic for an epoch
