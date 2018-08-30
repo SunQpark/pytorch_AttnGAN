@@ -3,7 +3,7 @@ import logging
 import torch
 import torch.optim as optim
 # from torch.optim.lr_scheduler import ReduceLROnPlateau
-from model.model import AttnGAN 
+from model.model import AttnGAN
 from model.loss import gan_loss, kld_loss
 # from model.metric import accuracy
 from data_loader import CocoDataLoader, CubDataLoader

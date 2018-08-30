@@ -236,7 +236,8 @@ class Discriminator(nn.Module):
     def forward(self, x_input, condition):
         x = self.downsamples(x_input)
         x = F.relu(self.conv(x), inplace=True)
-        score_uncond = F.sigmoid(self.conv_uncond(x))
+        x = x.view(x.shape[0], -1)
+        score_uncond = F.sigmoid(self.fc_uncond(x))
 
         c = self.fc_cond_1(condition) #n_d *1
         x = self.fc_cond_2(x) # n_d *1

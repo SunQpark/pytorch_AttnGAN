@@ -86,16 +86,12 @@ class Trainer(BaseTrainer):
             self.step_optims('F_ca')
 
             # train D with real images
-            update_targets = ['D_0', 'D_1', 'D_2']
-            self.init_optims(update_targets)
+            self.init_optims('D_0')
             output_0 = self.model.D_0(data[0], cond.detach())
-            output_1 = self.model.D_1(data[1], cond.detach())
-            output_2 = self.model.D_2(data[2], cond.detach())
 
-            errD_real = self.loss(output_0, real_label) + self.loss(output_1, real_label) + self.loss(output_2, real_label)
-            # errD_real = self.loss(output_0, real_label) + self.loss(output_1, real_label) 
-            errD_real.backward(retain_graph=True)            
-            self.step_optims(update_targets)
+            errD_real_0 = self.loss(output_0, real_label)
+            errD_real_0.backward(retain_graph=True)            
+            self.step_optims('D_0')
 
             #
             # Stage 1
@@ -115,69 +111,84 @@ class Trainer(BaseTrainer):
             errG_0.backward(retain_graph=True)
             self.step_optims(update_targets)
 
-            #
-            # Stage 2
-            #
-            c_0 = self.model.F_1_attn(text_embedded, h_0.detach()) # detach for isolation of graph from stage 1
-            h_1, fake_x_1 = self.model.F_1(c_0, h_0.detach()) 
-            
-            # train D_1 with fake data
-            self.init_optims('D_1')
-            score_fake_1 = self.model.D_1(fake_x_1, cond)
-            errD_fake_1 = self.loss(score_fake_1, fake_label)
-            errD_fake_1.backward(retain_graph=True)
-            self.step_optims('D_1')
-            
-            # train G_1 with fake data
-            update_targets = ['F_1_attn', 'F_1']
-            self.init_optims(update_targets)
-            errG_1 = self.loss(score_fake_1, real_label)
-            errG_1.backward(retain_graph=True)
-            self.step_optims(update_targets)
-
-            #
-            # Stage 3
-            #
-            c_1 = self.model.F_2_attn(text_embedded, h_1.detach()) # detach for isolation of graph from stage 1
-            h_2, fake_x_2 = self.model.F_1(c_1, h_1.detach()) 
-
-            # train D_2 with fake data
-            self.init_optims('D_2')
-            score_fake_2 = self.model.D_2(fake_x_2, cond)
-            errD_fake_2 = self.loss(score_fake_2, fake_label)
-            errD_fake_2.backward(retain_graph=True)
-            self.step_optims('D_2')
-            
-            # train G_2 with fake data
-            update_targets = ['F_2_attn', 'F_2', 'Text_encoder']
-            self.init_optims(update_targets)
-            errG_2 = self.loss(score_fake_2, real_label)
-            errG_2.backward(retain_graph=True)
-            self.step_optims(update_targets)
-            # update step ends
-            
-            loss_D = errD_fake_0.item() + errD_fake_1.item() + errD_fake_2.item() + errD_real.item()
-            loss_G = errG_0.item() + errG_1.item() + errG_2.item()
-            loss = loss_G + loss_D
 
             self.train_iter += 1
-            self.writer.add_scalar(f'{self.training_name}/Train/global/D_loss_real', errD_real.item(), self.train_iter)
-            self.writer.add_scalar(f'{self.training_name}/Train/global/F_ca_loss', loss_F_ca.item(), self.train_iter)
+            if epoch <= 64:
+                loss_D = errD_fake_0.item() + errD_real_0.item()
+                loss_G = errG_0.item()
+                loss = loss_G + loss_D       
 
-            self.writer.add_scalar(f'{self.training_name}/Train/stage0/D_loss_fake', errD_fake_0.item(), self.train_iter)
-            self.writer.add_scalar(f'{self.training_name}/Train/stage1/D_loss_fake', errD_fake_1.item(), self.train_iter)
-            self.writer.add_scalar(f'{self.training_name}/Train/stage2/D_loss_fake', errD_fake_2.item(), self.train_iter)
+                self.writer.add_scalar(f'{self.training_name}/Train/global/D_loss_real', errD_real_0.item(), self.train_iter)
+                self.writer.add_scalar(f'{self.training_name}/Train/global/F_ca_loss', loss_F_ca.item(), self.train_iter)
+                self.writer.add_scalar(f'{self.training_name}/Train/stage0/D_loss_fake', errD_fake_0.item(), self.train_iter)
+                self.writer.add_scalar(f'{self.training_name}/Train/stage0/G_loss', errG_0.item(), self.train_iter)
+                if self.train_iter % 20 == 0:
+                    self.writer.add_image('image/generated_0', make_grid(fake_x_0[:16], normalize=True, nrow=4), self.train_iter)
 
-            self.writer.add_scalar(f'{self.training_name}/Train/stage0/G_loss', errG_0.item(), self.train_iter)
-            self.writer.add_scalar(f'{self.training_name}/Train/stage1/G_loss', errG_1.item(), self.train_iter)
-            self.writer.add_scalar(f'{self.training_name}/Train/stage2/G_loss', errG_2.item(), self.train_iter)
+            else:
+                update_targets = ['D_1', 'D_2']
+                self.init_optims(update_targets)
+                output_1 = self.model.D_1(data[1], cond.detach())
+                output_2 = self.model.D_2(data[2], cond.detach())
+                errD_real = self.loss(output_1, real_label) + self.loss(output_2, real_label)
+                errD_real.backward(retain_graph=True)
+                self.step_optims(update_targets)
+                #
+                # Stage 2
+                #
+                c_0 = self.model.F_1_attn(text_embedded, h_0.detach()) # detach for isolation of graph from stage 1
+                h_1, fake_x_1 = self.model.F_1(c_0, h_0.detach()) 
+                
+                # train D_1 with fake data
+                self.init_optims('D_1')
+                score_fake_1 = self.model.D_1(fake_x_1, cond)
+                errD_fake_1 = self.loss(score_fake_1, fake_label)
+                errD_fake_1.backward(retain_graph=True)
+                self.step_optims('D_1')
+                
+                # train G_1 with fake data
+                update_targets = ['F_1_attn', 'F_1', 'Text_encoder']
+                self.init_optims(update_targets)
+                errG_1 = self.loss(score_fake_1, real_label)
+                errG_1.backward(retain_graph=True)
+                self.step_optims(update_targets)
 
-            if self.train_iter % 20 == 0:
-                # self.writer.add_image('image/original', make_grid(data[0], normalize=True), self.train_iter)
-                self.writer.add_image('image/generated_0', make_grid(fake_x_0, normalize=True, nrow=4), self.train_iter)
-                self.writer.add_image('image/generated_1', make_grid(fake_x_1, normalize=True, nrow=4), self.train_iter)
-                self.writer.add_image('image/generated_2', make_grid(fake_x_2, normalize=True, nrow=4), self.train_iter)
-                self.writer.add_text('text', self.decode_sentence(text), self.train_iter)
+                #
+                # Stage 3
+                #
+                c_1 = self.model.F_2_attn(text_embedded, h_1.detach()) # detach for isolation of graph from stage 1
+                h_2, fake_x_2 = self.model.F_1(c_1, h_1.detach()) 
+
+                # train D_2 with fake data
+                self.init_optims('D_2')
+                score_fake_2 = self.model.D_2(fake_x_2, cond)
+                errD_fake_2 = self.loss(score_fake_2, fake_label)
+                errD_fake_2.backward(retain_graph=True)
+                self.step_optims('D_2')
+                
+                # train G_2 with fake data
+                update_targets = ['F_2_attn', 'F_2', 'Text_encoder']
+                self.init_optims(update_targets)
+                errG_2 = self.loss(score_fake_2, real_label)
+                errG_2.backward(retain_graph=True)
+                self.step_optims(update_targets)
+                
+                loss_D = errD_fake_0.item() + errD_fake_1.item() + errD_fake_2.item() + errD_real_0.item() + errD_real.item()
+                loss_G = errG_0.item() + errG_1.item() + errG_2.item()
+                loss = loss_G + loss_D
+
+                self.writer.add_scalar(f'{self.training_name}/Train/stage1/D_loss_fake', errD_fake_1.item(), self.train_iter)
+                self.writer.add_scalar(f'{self.training_name}/Train/stage2/D_loss_fake', errD_fake_2.item(), self.train_iter)
+
+                self.writer.add_scalar(f'{self.training_name}/Train/stage1/G_loss', errG_1.item(), self.train_iter)
+                self.writer.add_scalar(f'{self.training_name}/Train/stage2/G_loss', errG_2.item(), self.train_iter)
+
+                if self.train_iter % 20 == 0:
+                    self.writer.add_image('image/generated_0', make_grid(fake_x_0, normalize=True, nrow=4), self.train_iter)
+                    self.writer.add_image('image/generated_1', make_grid(fake_x_1, normalize=True, nrow=4), self.train_iter)
+                    self.writer.add_image('image/generated_2', make_grid(fake_x_2, normalize=True, nrow=4), self.train_iter)
+                    self.writer.add_text('text', self.decode_sentence(text), self.train_iter)
+
             total_loss += loss
             log_step = int(np.sqrt(self.batch_size))
             if self.verbosity >= 2 and batch_idx % log_step == 0:
@@ -194,35 +205,3 @@ class Trainer(BaseTrainer):
             log = {**log, **val_log}
 
         return log
-
-    def _valid_epoch(self):
-        """
-        Validate after training an epoch
-
-        :return: A log that contains information about validation
-        """
-        self.model.eval()
-        with torch.no_grad():
-            total_val_loss = 0
-            total_val_metrics = np.zeros(len(self.metrics))
-            for batch_idx, (data, _) in enumerate(self.valid_data_loader):
-                data = data.to(self.device)
-                batch_size = data.shape[0]
-                z = torch.randn((batch_size, 100, 1, 1), device=self.device)
-
-                output, fake_x = self.model(z, data)
-                loss = self.loss(output[:batch_size], output[batch_size:])
-                total_val_loss += loss.item()
-
-                self.valid_iter += 1
-                self.writer.add_scalar(f'{self.training_name}/Valid/loss', loss.item(), self.valid_iter)
-                for i, metric in enumerate(self.metrics):
-                    score = metric(output, target)
-                    total_val_metrics[i] += score
-                    self.writer.add_scalar(f'{self.training_name}/Valid/{metric.__name__}', score, self.valid_iter)
-
-            avg_val_loss = total_val_loss / len(self.valid_data_loader)
-            if self.scheduler is not None:
-                self.scheduler.step(avg_val_loss)
-            avg_val_metrics = (total_val_metrics / len(self.valid_data_loader)).tolist()
-        return {'val_loss': avg_val_loss, 'val_metrics': avg_val_metrics}
