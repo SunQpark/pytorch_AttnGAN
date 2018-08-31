@@ -15,7 +15,7 @@ def kld_loss(mu, logvar):
 
 def DAMSM_loss(attn_score, gamma_3):
     # loss = torch.exp(gamma_3 * attn_score)/batch_sum
-    loss = -torch.mean(F.log_softmax(gamma_3 * attn_score, dim=0)))
+    loss = -torch.mean(F.log_softmax(gamma_3 * attn_score, dim=0))
     return loss
 
 def pullaway_loss(embeddings):

@@ -9,6 +9,8 @@ from base import BaseModel
 from torch import Tensor
 from torch.nn import Parameter
 # from data_loader import CocoDataLoader, CubDataLoader
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+
 
 class UpsampleBlock(nn.Module):
     def __init__(self, in_ch, out_ch):
@@ -257,21 +259,31 @@ class Matching_Score_word(nn.Module):
         self.gamma_1 = gamma_1
         self.gamma_2 = gamma_2
         self.gamma_3 = gamma_3
+        self.fc = nn.Linear(768, 128)
         
     def batch_score(self, e, v):
-        s = torch.mm(e.t(), v) #(T, 289)
+        # print(e.shape)
+        # print(v.shape)
+
+        s = torch.mm(e, v.t()) #(T, 289)
         s_norm = F.softmax(s, dim=1) #( T, 289) 
         alpha = F.softmax(self.gamma_1 * s_norm, dim=0)# (T, 289)
         
         alpha = torch.unsqueeze(alpha, dim=1) # (T, 1, 289)
+        # print(alpha.shape)
         v = torch.unsqueeze(v, dim=0) # (1, D, 289)
-        c = torch.sum(alpha * v, dim=2) # (T, D)
+        # print(v.shape)
+        c = torch.sum(alpha * v.transpose(1, 2), dim=2) # (T, D)
         
-        R = self.cos(c.t(), e) #(T)
+        print(c.shape)
+        print(e.shape)
+        R = self.cos(c, e) #(T)
         match_score = torch.log(torch.exp(self.gamma_2 * R).sum(dim=0)).pow(1/self.gamma_2) #scalar
         return match_score
 
-    def forward(self, e, v):
+    def __call__(self, e, v):
+        v = self.fc(v.transpose(1, 2))
+        # print(v.shape)
         batch_size = e.shape[0]
         batch_sum_score_d = torch.zeros(batch_size, device=device)
         batch_sum_score_q = torch.zeros(batch_size, device=device)
@@ -284,21 +296,25 @@ class Matching_Score_word(nn.Module):
         return batch_sum_score_d, batch_sum_score_q
 
 
-class Matching_Score_sent(nn.Module):
+class Matching_Score_sent():
     def __init__(self, gamma_3):
-        super(Matching_Score_sent, self).__init__()
+        # super(Matching_Score_sent, self).__init__()
         self.cos = nn.CosineSimilarity(dim = 1)
         self.gamma_3 = gamma_3
 
-    def forward(self, e_global, v_global):
+    def __call__(self, e_global, v_global):
         batch_size = e_global.shape[0]
         batch_sum_score_d = torch.zeros(batch_size, device = device)
         batch_sum_score_q = torch.zeros(batch_size, device = device)
 
         for i in range(batch_size):
             for j in range(batch_size):
-                batch_sum_score_d[i] += torch.exp(self.gamma_3 *(self.cos(e_global[i], v_global[j])))
-                batch_sum_score_q[i] += torch.exp(self.gamma_3 *(self.cos(e_global[j], v_global[i])))
+                try:
+                    batch_sum_score_d[i] += torch.exp(self.gamma_3 *(self.cos(e_global[i], v_global[j])))
+                    batch_sum_score_q[i] += torch.exp(self.gamma_3 *(self.cos(e_global[j], v_global[i])))
+                except RuntimeError:
+                    print(e_global.shape)
+                    print(v_global.shape)
         
         return batch_sum_score_d, batch_sum_score_q
 

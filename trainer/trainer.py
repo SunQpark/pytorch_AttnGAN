@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_packed_sequence
 from torchvision.utils import make_grid
 from base import BaseTrainer
@@ -54,11 +55,13 @@ class Trainer(BaseTrainer):
             self.optimizer[names].zero_grad()
 
     def reshape_output(self, image_batch):
-        transform = transforms.Compose([transforms.ToPILImage(), transforms.Resize(80), transforms.ToTensor()])
-        result = []
-        for img in torch.unbind(image_batch, dim=0):
-            result.append(transform(img))
-        return torch.cat(result, dim=0)
+        # transform = transforms.Compose([transforms.ToPILImage(), transforms.Resize(80), transforms.ToTensor()])
+        
+        # result = []
+        # for img in torch.unbind(image_batch, dim=0):
+        #     result.append(transform(img))
+        result = F.adaptive_avg_pool2d(image_batch, 80)
+        return result
         
     def _train_epoch(self, epoch):
         """
@@ -121,7 +124,7 @@ class Trainer(BaseTrainer):
 
 
             self.train_iter += 1
-            if epoch <= 64:
+            if epoch <= 0:
                 loss_D = errD_fake_0.item() + errD_real_0.item()
                 loss_G = errG_0.item()
                 loss = loss_G + loss_D       
