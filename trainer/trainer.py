@@ -55,11 +55,6 @@ class Trainer(BaseTrainer):
             self.optimizer[names].zero_grad()
 
     def reshape_output(self, image_batch):
-        # transform = transforms.Compose([transforms.ToPILImage(), transforms.Resize(80), transforms.ToTensor()])
-        
-        # result = []
-        # for img in torch.unbind(image_batch, dim=0):
-        #     result.append(transform(img))
         result = F.adaptive_avg_pool2d(image_batch, 80)
         return result
         
@@ -187,8 +182,8 @@ class Trainer(BaseTrainer):
                 update_targets = ['Image_encoder', 'Text_encoder']
                 reshaped_output = self.reshape_output(fake_x_2)
                 local_feature, global_feature = self.model.image_encoder(reshaped_output)
-                b, c, _, _ = local_feature.shape
-                word_score_1, word_score_2 = self.model.matching_score_word(text_embedded, local_feature.view(b, c, -1))
+                
+                word_score_1, word_score_2 = self.model.matching_score_word(text_embedded, local_feature)
                 sent_score_1, sent_score_2 = self.model.matching_score_sent(sen_feature, global_feature)
                 loss_damsm = self.damsm_loss(word_score_1, 10) + self.damsm_loss(word_score_2, 10) + self.damsm_loss(sent_score_1, 10) + self.damsm_loss(sent_score_2, 10)
                 loss_damsm.backward(retain_graph=True)
