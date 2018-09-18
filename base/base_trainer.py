@@ -2,7 +2,7 @@ import os
 import math
 import logging
 import torch
-from utils.util import ensure_dir
+# from utils.util import ensure_dir
 
 
 class BaseTrainer:
@@ -41,7 +41,7 @@ class BaseTrainer:
     
 
         self.checkpoint_dir = os.path.join(save_dir)
-        ensure_dir(self.checkpoint_dir)
+        # ensure_dir(self.checkpoint_dir)
         if resume is not None:
             self._resume_checkpoint(resume)
 

@@ -12,6 +12,7 @@ from logger import Logger
 from tensorboardX import SummaryWriter
 # import torch.multiprocessing as mp
 from datetime import datetime
+import torch.nn as nn 
 
 logging.basicConfig(level=logging.INFO, format='')
 
@@ -68,7 +69,9 @@ def main(args):
     # mp.set_start_method('spawn')
     # Model
     model = AttnGAN(embedding_size=args.embedding_size, latent_size=args.latent_size, in_ch=args.in_ch, vocab_size=args.vocab_size, hidden_size=args.hidden_size, num_layer=1, dropout=args.dropout)
-    
+    # test_dict = [name for name, module in model.named_children() if len(list(module.parameters())) == 0]
+    # print(test_dict)
+    # print(test_dict)
     # A logger to store training process information
     train_logger = Logger()
 
@@ -81,7 +84,7 @@ def main(args):
     metrics = []
     optimizer = {
         # name : optim.Adam(module.parameters(), lr=args.lr, weight_decay=args.wd, amsgrad=True, betas=(0.5, 0.999))
-        name : optim.RMSprop(module.parameters(), lr=args.lr, alpha=0.99, eps=1e-08, weight_decay=args.wd)
+        name : optim.RMSprop(nn.ParameterList(module.parameters()), lr=args.lr, alpha=0.99, eps=1e-08, weight_decay=args.wd)
         for name, module in model.named_children()
     }
 
