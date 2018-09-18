@@ -5,6 +5,7 @@ from torchvision.utils import make_grid
 from base import BaseTrainer
 from torchvision import transforms
 from model.model import Matching_Score_word, Matching_Score_sent
+import torch.nn.functional as F
 
 class Trainer(BaseTrainer):
     """
@@ -55,11 +56,8 @@ class Trainer(BaseTrainer):
             self.optimizer[names].zero_grad()
 
     def reshape_output(self, image_batch):
-        transform = transforms.Compose([transforms.ToPILImage(), transforms.Resize(80), transforms.ToTensor()])
-        result = []
-        for img in torch.unbind(image_batch, dim=0):
-            result.append(transform(img))
-        return torch.cat(result, dim=0)
+        result = F.adaptive_avg_pool2d(image_batch, 80)
+        return result
         
     def _train_epoch(self, epoch):
         """
@@ -181,14 +179,18 @@ class Trainer(BaseTrainer):
                 errG_2.backward(retain_graph=True)
                 self.step_optims(update_targets)
 
-                matching_score_word = Matching_Score_word(5, 5, 10)
-                matching_score_sent = Matching_Score_sent(10)
+                matching_score_word = Matching_Score_word(5, 5, 10).to(self.device)
+                matching_score_sent = Matching_Score_sent(10).to(self.device)
                 
-                update_targets = ['Image_encoder', 'Text_encoder']
+                # update_targets = ['Image_encoder', 'Text_encoder']
+                # self.init_optims(update_targets)
                 reshaped_output = self.reshape_output(fake_x_2)
                 local_feature, global_feature = self.model.image_encoder(reshaped_output)
-                b, c, _, _ = local_feature.shape
-                word_score_1, word_score_2 = matching_score_word(text_embedded, local_feature.view(b, c, -1))
+                # b, c, _, _ = local_feature.shape
+                # print(type(global_feature))
+                local_feature = local_feature.to(self.device)
+                # print(local_feature)
+                word_score_1, word_score_2 = matching_score_word(text_embedded, local_feature)
                 sent_score_1, sent_score_2 = matching_score_sent(sen_feature, global_feature)
                 loss_damsm = self.damsm_loss(word_score_1, 10) + self.damsm_loss(word_score_2, 10) + self.damsm_loss(sent_score_1, 10) + self.damsm_loss(sent_score_2, 10)
                 loss_damsm.backward(retain_graph=True)

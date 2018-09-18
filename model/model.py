@@ -217,6 +217,40 @@ class EB_Discriminator(nn.Module):
         return score_total
 
 
+# class Discriminator(nn.Module):
+#     def __init__(self, in_ch, num_downsample=4, embed_size=128, n_d=64, norm_mode='inst'):
+#         super(Discriminator, self).__init__()
+#         self.downsamples = nn.Sequential(*[DownsampleBlock(in_ch*2**i, in_ch*2**(i+1), norm_mode) for i in range(num_downsample)])
+#         if norm_mode == 'spectral':
+#             self.conv = SpectralNorm(nn.Conv2d(in_ch*2**num_downsample, 8*n_d, 3, 1, 1))
+#         else:
+#             self.conv = nn.Conv2d(in_ch*2**num_downsample, 8*n_d, 3, 1, 1)
+        
+#         self.fc_uncond = nn.Linear(4*4*8*n_d, 1)
+#         self.fc_cond_1 = nn.Linear(2*embed_size, n_d)
+#         self.fc_cond_2 = nn.Linear(4*4*8*n_d, n_d)
+#         self.fc_cond_3 = nn.Linear(2*n_d, 1)
+
+#         # self.conv_uncond = nn.Conv2d(8*n_d, 1, 1, 1, 0)
+#         # self.conv_cond = nn.Conv2d(9*n_d, 1, 1, 1, 0)
+    
+#     def forward(self, x_input, condition):
+#         x = self.downsamples(x_input)
+#         x = F.relu(self.conv(x), inplace=True)
+#         x = x.view(x.shape[0], -1)
+#         score_uncond = F.sigmoid(self.fc_uncond(x))
+        
+#         c = self.fc_cond_1(condition) #n_d *1
+#         x = self.fc_cond_2(x) # n_d *1
+#         # c = c.unsqueeze(2).unsqueeze(2)
+#         # c = c.expand(c.shape[0], c.shape[1], x.shape[2], x.shape[3])
+#         concat = torch.cat([x, c], dim=1)
+#         score_cond = F.sigmoid(self.fc_cond_3(concat))
+#         score_total = (score_cond + score_uncond) / 2
+#         # score_total = torch.cat([score_cond, score_uncond], dim=1)
+#         return score_total
+
+
 class Discriminator(nn.Module):
     def __init__(self, in_ch, num_downsample=4, embed_size=128, n_d=64, norm_mode='inst'):
         super(Discriminator, self).__init__()
@@ -226,27 +260,27 @@ class Discriminator(nn.Module):
         else:
             self.conv = nn.Conv2d(in_ch*2**num_downsample, 8*n_d, 3, 1, 1)
         
-        self.fc_uncond = nn.Linear(4*4*8*n_d, 1)
-        self.fc_cond_1 = nn.Linear(2*embed_size, n_d)
-        self.fc_cond_2 = nn.Linear(4*4*8*n_d, n_d)
-        self.fc_cond_3 = nn.Linear(2*n_d, 1)
-
-        # self.conv_uncond = nn.Conv2d(8*n_d, 1, 1, 1, 0)
-
-        # self.conv_cond = nn.Conv2d(9*n_d, 1, 1, 1, 0)
-
+        # self.fc_uncond = nn.Linear(4*4*8*n_d, 1)
+        # self.fc_cond_1 = nn.Linear(2*embed_size, n_d)
+        # self.fc_cond_2 = nn.Linear(4*4*8*n_d, n_d)
+        # self.fc_cond_3 = nn.Linear(2*n_d, 1)
+        self.fc_cond = nn.Linear(embed_size*2, n_d)
+        self.conv_uncond = nn.Conv2d(8*n_d, 1, 1, 1, 0)
+        self.conv_cond = nn.Conv2d(9*n_d, 1, 1, 1, 0)
+    
     def forward(self, x_input, condition):
         x = self.downsamples(x_input)
         x = F.relu(self.conv(x), inplace=True)
-        x = x.view(x.shape[0], -1)
-        score_uncond = F.sigmoid(self.fc_uncond(x))
+        score_uncond = F.sigmoid(self.conv_uncond(x))
+        # x = x.view(x.shape[0], -1)
+        # score_uncond = F.sigmoid(self.fc_uncond(x))
         
-        c = self.fc_cond_1(condition) #n_d *1
-        x = self.fc_cond_2(x) # n_d *1
-        # c = c.unsqueeze(2).unsqueeze(2)
-        # c = c.expand(c.shape[0], c.shape[1], x.shape[2], x.shape[3])
+        c = self.fc_cond(condition) #n_d *1
+        # x = self.fc_cond_2(x) # n_d *1
+        c = c.unsqueeze(2).unsqueeze(2)
+        c = c.expand(c.shape[0], c.shape[1], x.shape[2], x.shape[3])
         concat = torch.cat([x, c], dim=1)
-        score_cond = F.sigmoid(self.fc_cond_3(concat))
+        score_cond = F.sigmoid(self.conv_cond(concat))
         score_total = (score_cond + score_uncond) / 2
         # score_total = torch.cat([score_cond, score_uncond], dim=1)
         return score_total
@@ -274,7 +308,7 @@ class Matching_Score_word(nn.Module):
         match_score = torch.log(torch.exp(self.gamma_2 * R).sum(dim=0)).pow(1/self.gamma_2) #scalar
         return match_score
 
-    def __call__(self, e, v):
+    def forward(self, e, v):
         v = self.fc(v.transpose(1, 2)).transpose(1, 2)
         
         batch_size = e.shape[0]
@@ -296,7 +330,7 @@ class Matching_Score_sent(nn.Module):
         self.gamma_3 = gamma_3
         self.fc = nn.Linear(2048, embed_size)
 
-    def __call__(self, e_global, v_global):
+    def forward(self, e_global, v_global):
         v_global = self.fc(v_global)
         batch_size = e_global.shape[0]
         batch_sum_score_d = torch.zeros(batch_size, device=device)
@@ -376,15 +410,15 @@ class AttnGAN(nn.Module):
         self.F_ca = F_ca(embedding_size, latent_size)
 
         self.F_0 = F_0(latent_size)
-        self.D_0 = Discriminator(in_ch, 4, norm_mode='spectral') # for  64 by  64 output of stage 1
+        self.D_0 = Discriminator(in_ch, 4, norm_mode='batch') # for  64 by  64 output of stage 1
 
         self.F_1_attn = F_attn(embedding_size, hidden_size)
         self.F_1 = F_i(latent_size)
-        self.D_1 = Discriminator(in_ch, 5, norm_mode='spectral') # for 128 by 128 output of stage 2
+        self.D_1 = Discriminator(in_ch, 5, norm_mode='batch') # for 128 by 128 output of stage 2
 
         self.F_2_attn = F_attn(embedding_size, hidden_size)
         self.F_2 = F_i(latent_size)
-        self.D_2 = Discriminator(in_ch, 6, norm_mode='spectral') # for 256 by 256 output of stage 3
+        self.D_2 = Discriminator(in_ch, 6, norm_mode='batch') # for 256 by 256 output of stage 3
         self.image_encoder = Image_encoder(embedding_size) 
         # self.matching_score_word = Matching_Score_word(5, 5, 10)
         # self.matching_score_sent = Matching_Score_sent(10)

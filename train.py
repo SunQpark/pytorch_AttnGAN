@@ -63,6 +63,8 @@ def arg_parse():
     return args
 
 
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
 def main(args):
     writer = SummaryWriter(args.log_dir + args.timestamp + args.config)
     device = torch.device('cuda:0' if torch.cuda.is_available() and not args.no_cuda else 'cpu')
@@ -87,7 +89,7 @@ def main(args):
         name : optim.RMSprop(nn.ParameterList(module.parameters()), lr=args.lr, alpha=0.99, eps=1e-08, weight_decay=args.wd)
         for name, module in model.named_children()
     }
-
+    print(count_parameters(model))
     # Data loader and validation split
     data_loader = CubDataLoader('../data/birds', args.batch_size, args.valid_batch_size, args.validation_split, args.validation_fold, shuffle=True, num_workers=0)
     # data_loader = CocoDataLoader('../cocoapi', args.batch_size, args.valid_batch_size, args.validation_split, args.validation_fold, shuffle=True, num_workers=4)
