@@ -9,6 +9,8 @@ from base import BaseModel
 from torch import Tensor
 from torch.nn import Parameter
 # from data_loader import CocoDataLoader, CubDataLoader
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+
 
 class UpsampleBlock(nn.Module):
     def __init__(self, in_ch, out_ch):
@@ -91,7 +93,7 @@ class Image_encoder(nn.Module):
         x = self.layers1(x) # input size: (80, 80)
         output = self.layers2(x)
         output = F.adaptive_avg_pool2d(output, 1)
-        return x, output
+        return x.view(x.shape[0], x.shape[1], -1), output.squeeze()
 
 
 class F_ca(nn.Module):
@@ -114,7 +116,7 @@ class F_ca(nn.Module):
 class F_0(nn.Module):
     def __init__(self, latent_size, n_g=32):                                         
         super(F_0, self).__init__()
-        self.fc = nn.Linear(latent_size*2, 4 * 4 * 64 * n_g)
+        self.fc = nn.Linear(latent_size, 4*4*64*n_g)
         self.upsample_blocks = nn.Sequential(
             UpsampleBlock(64 * n_g, 32 * n_g),
             UpsampleBlock(32 * n_g, 16 * n_g),
@@ -225,7 +227,7 @@ class Discriminator(nn.Module):
             self.conv = nn.Conv2d(in_ch*2**num_downsample, 8*n_d, 3, 1, 1)
         
         self.fc_uncond = nn.Linear(4*4*8*n_d, 1)
-        self.fc_cond_1 = nn.Linear(embed_size, n_d)
+        self.fc_cond_1 = nn.Linear(2*embed_size, n_d)
         self.fc_cond_2 = nn.Linear(4*4*8*n_d, n_d)
         self.fc_cond_3 = nn.Linear(2*n_d, 1)
 
@@ -238,7 +240,7 @@ class Discriminator(nn.Module):
         x = F.relu(self.conv(x), inplace=True)
         x = x.view(x.shape[0], -1)
         score_uncond = F.sigmoid(self.fc_uncond(x))
-
+        
         c = self.fc_cond_1(condition) #n_d *1
         x = self.fc_cond_2(x) # n_d *1
         # c = c.unsqueeze(2).unsqueeze(2)
@@ -253,25 +255,28 @@ class Discriminator(nn.Module):
 class Matching_Score_word(nn.Module):
     def __init__(self, gamma_1, gamma_2, gamma_3):
         super(Matching_Score_word, self).__init__()
-        self.cos = nn.CosineSimilarity(dim = 1)
+        self.cos = nn.CosineSimilarity(dim=1)
         self.gamma_1 = gamma_1
         self.gamma_2 = gamma_2
         self.gamma_3 = gamma_3
+        self.fc = nn.Linear(768, 128)
         
     def batch_score(self, e, v):
         s = torch.mm(e.t(), v) #(T, 289)
-        s_norm = F.softmax(s, dim=1) #( T, 289) 
+        s_norm = F.softmax(s, dim=1) #(T, 289) 
         alpha = F.softmax(self.gamma_1 * s_norm, dim=0)# (T, 289)
         
-        alpha = torch.unsqueeze(alpha, dim=1) # (T, 1, 289)
-        v = torch.unsqueeze(v, dim=0) # (1, D, 289)
+        alpha = alpha[:, None, :] # (T, 1, 289)
+        v = v[None, :, :] # (1, D, 289)
         c = torch.sum(alpha * v, dim=2) # (T, D)
-        
-        R = self.cos(c.t(), e) #(T)
+
+        R = self.cos(c, e.t()) #(T)
         match_score = torch.log(torch.exp(self.gamma_2 * R).sum(dim=0)).pow(1/self.gamma_2) #scalar
         return match_score
 
-    def forward(self, e, v):
+    def __call__(self, e, v):
+        v = self.fc(v.transpose(1, 2)).transpose(1, 2)
+        
         batch_size = e.shape[0]
         batch_sum_score_d = torch.zeros(batch_size, device=device)
         batch_sum_score_q = torch.zeros(batch_size, device=device)
@@ -279,21 +284,23 @@ class Matching_Score_word(nn.Module):
         # TODO: vertorize this double for loop
         for i in range(batch_size):
             for j in range(batch_size):
-                batch_sum_score_d[i] += self.batch_score(e[i], v[j])
-                batch_sum_score_q[i] += self.batch_score(e[j], v[i])
+                batch_sum_score_d[i] += self.batch_score(e[i].t(), v[j])
+                batch_sum_score_q[i] += self.batch_score(e[j].t(), v[i])
         return batch_sum_score_d, batch_sum_score_q
 
 
 class Matching_Score_sent(nn.Module):
-    def __init__(self, gamma_3):
+    def __init__(self, gamma_3, embed_size=128):
         super(Matching_Score_sent, self).__init__()
-        self.cos = nn.CosineSimilarity(dim = 1)
+        self.cos = nn.CosineSimilarity(dim=0)
         self.gamma_3 = gamma_3
+        self.fc = nn.Linear(2048, embed_size)
 
-    def forward(self, e_global, v_global):
+    def __call__(self, e_global, v_global):
+        v_global = self.fc(v_global)
         batch_size = e_global.shape[0]
-        batch_sum_score_d = torch.zeros(batch_size, device = device)
-        batch_sum_score_q = torch.zeros(batch_size, device = device)
+        batch_sum_score_d = torch.zeros(batch_size, device=device)
+        batch_sum_score_q = torch.zeros(batch_size, device=device)
 
         for i in range(batch_size):
             for j in range(batch_size):
@@ -383,7 +390,7 @@ class AttnGAN(nn.Module):
         # self.matching_score_sent = Matching_Score_sent(10)
         
     def forward(self, label):
-        text_embedded, z_input, cond, mu, std = self.prepare_inputs(label)
+        text_embedded, sen_feature, z_input, cond, mu, std = self.prepare_inputs(label)
 
         h_0, output_0 = self.F_0(z_input)
 
@@ -403,32 +410,30 @@ class AttnGAN(nn.Module):
 
         random_noise = torch.randn_like(cond)
         z_input = torch.cat((random_noise, cond), dim=1)
-        return text_embedded, z_input, cond, mu, std, sen_feature
+        return text_embedded, sen_feature, z_input, cond, mu, std
 
 
 if __name__ == '__main__':
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    model = Discriminator(3)
+    # emb_size = 128
+    # dummy_img = torch.randn(1, 3, 80, 80).to(device)
+    # img_enc = Image_encoder(emb_size).to(device)
 
-    dummy = torch.randn((2, 3, 64, 64))
-    dummy_cond = torch.randn((2, 128))
-    output = model(dummy, dummy_cond)
+    # x, x_bar = img_enc(dummy_img)
+    # print(x.shape)
+    # print(x_bar.shape)
+    #test F_attn
+    model = Matching_Score_word(1,1,1)
+    model= model.to(device)
 
-    print(output[0].shape)
-    print(output[1].shape)
-    # #test F_attn
-    # model = Matching_Score_word(1,1,1)
-    # model= model.to(device)
+    batch_size = 4
+    seq_length = 32
+    seq_features = 128
 
-    # batch_size = 4
-    # seq_length = 32
-    # seq_features = 20
-
-    # e = torch.randn((batch_size, seq_features,seq_length), device = device)
-    # v = torch.randn((batch_size, seq_features, 289), device=device)
+    e = torch.randn((batch_size, seq_features, seq_length), device=device)
+    v = torch.randn((batch_size, 768, 289), device=device)
     
-    # output1, output2 = model(e,v)
-    # print(output1.shape, output2.shape)
+    output1, output2 = model(e,v)
+    print(output1.shape, output2.shape)
     # img_channels = 16
 
     # model = F_attn(seq_features, img_channels)
