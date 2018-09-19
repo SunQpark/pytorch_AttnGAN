@@ -49,10 +49,10 @@ def arg_parse():
     parser.add_argument('--log-dir', default='saved/runs/', type=str)
     parser.add_argument('--in-ch', default=3, type=int)
     parser.add_argument('--vocab-size', default=4795, type=int)
-    parser.add_argument('--latent-size', default=128, type=int)
+    parser.add_argument('--latent-size', default=256, type=int)
     parser.add_argument('--dropout', default=0.2, type= float)
     parser.add_argument('--embedding-size', default=128, type=int)
-    parser.add_argument('--hidden-size', default=64, type=int)
+    parser.add_argument('--hidden-size', default=128, type=int)
 
     args = parser.parse_args()
     config_list = [args.batch_size, args.lr, args.in_ch, args.vocab_size, args.latent_size, args.dropout, args.embedding_size]

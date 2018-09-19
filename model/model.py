@@ -12,23 +12,34 @@ from torch.nn import Parameter
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
+class GLU(nn.Module):
+    def __init__(self):
+        super(GLU, self).__init__()
+
+    def forward(self, x):
+        nc = x.size(1)
+        assert nc % 2 == 0, 'channels dont divide 2!'
+        nc = int(nc/2)
+        return x[:, :nc] * F.sigmoid(x[:, nc:])
+
 class UpsampleBlock(nn.Module):
     def __init__(self, in_ch, out_ch):
         super(UpsampleBlock, self).__init__()
-        self.conv = nn.Conv2d(in_ch, out_ch, 3, 1, 1)
-        self.bn = nn.BatchNorm2d(out_ch)
-        self.relu = nn.ReLU(inplace=True)
+        self.conv = nn.Conv2d(in_ch, out_ch*2, 3, 1, 1)
+        self.bn = nn.BatchNorm2d(out_ch*2)
+        # self.relu = nn.ReLU(inplace=True)
+        self.glu = GLU()
 
     def forward(self, x):
-        x = F.upsample(self.relu(self.bn(self.conv(x))), scale_factor=2)
+        x = F.upsample(self.glu(self.bn(self.conv(x))), scale_factor=2)
         return x
 
 class DownsampleBlock(nn.Module):
     def __init__(self, in_ch, out_ch, normalize='batch'):
         super(DownsampleBlock, self).__init__()
-        self.conv = nn.Conv2d(in_ch, out_ch, 4, 2, 1)
+        self.conv = nn.Conv2d(in_ch, out_ch*2, 4, 2, 1)
         if normalize == 'batch':
-            self.norm = nn.BatchNorm2d(out_ch)
+            self.norm = nn.BatchNorm2d(out_ch*2)
         elif normalize == 'inst':
             self.norm = nn.InstanceNorm2d(out_ch)
         elif normalize == 'spectral':
@@ -36,28 +47,29 @@ class DownsampleBlock(nn.Module):
             self.norm = None
         else:
             self.norm = None
-        self.lrelu = nn.LeakyReLU(0.2, inplace=True)
-    
+        # self.lrelu = nn.LeakyReLU(0.2, inplace=True)
+        self.glu = GLU()
+
     def forward(self, x_input):
         x = self.conv(x_input)
         if self.norm is not None:
             x = self.norm(x)
-        x = self.lrelu(x)
+        x = self.glu(x)
         return x
 
 class ResidualBlock(nn.Module):
     def __init__(self, in_ch, ch, stride=1):
         super(ResidualBlock, self).__init__()
-        self.conv1 = nn.Conv2d(in_ch, ch, 3, stride, 1, bias=False)
-        self.bn1 = nn.BatchNorm2d(ch)
-        self.relu = nn.ReLU(inplace=True)
-
+        self.conv1 = nn.Conv2d(in_ch, ch*2, 3, stride, 1, bias=False)
+        self.bn1 = nn.BatchNorm2d(ch*2)
+        # self.relu = nn.ReLU(inplace=True)
+        self.glu = GLU()
         self.conv2 = nn.Conv2d(ch, ch, 3, 1, 1, bias=False)
         self.bn2 = nn.BatchNorm2d(ch)
 
     def forward(self, x_input):
         residual = x_input
-        x = self.relu(self.bn1(self.conv1(x_input)))
+        x = self.glu(self.bn1(self.conv1(x_input)))
         x = self.bn2(self.conv2(x))
         return x + residual
 
@@ -75,33 +87,36 @@ class Text_encoder(nn.Module):
         x = x.squeeze()
         embedded = self.embedding(x)
         embedded = pack_padded_sequence(embedded, lengths)
-        output, _ = self.bi_lstm(embedded)
+        output, hidden = self.bi_lstm(embedded)
         output, _ = pad_packed_sequence(output)
-        output = output.t()
-        return output
+        word_emb = output.t()
+        sent_emb = hidden[0].transpose(0,1).contiguous()
+        # print('sent_emb', sent_emb.shape)
+        sent_emb = sent_emb.view(-1, self.hidden_size * 2)
+        return word_emb, sent_emb
 
 
 class Image_encoder(nn.Module):
     def __init__(self, embedding_size):
         super(Image_encoder, self).__init__()
         inception = inception_v3(pretrained=True)
-        inception.eval()
         self.layers1 = nn.Sequential(*list(inception.children())[:-5]) # to mixed_6e
         self.layers2 = nn.Sequential(*list(inception.children())[-4:-1])
         self.fc = nn.Linear(2048, embedding_size)
     def forward(self, x):
-        x = self.layers1(x) # input size: (80, 80)
-        output = self.layers2(x)
-        output = F.adaptive_avg_pool2d(output, 1)
+        with torch.no_grad():
+            x = self.layers1(x) # input size: (80, 80)
+            output = self.layers2(x)
+            output = F.adaptive_avg_pool2d(output, 1)
         return x.view(x.shape[0], x.shape[1], -1), output.squeeze()
 
 
 class F_ca(nn.Module):
     """ conditioning augmentation of sentence embedding """
-    def __init__(self, embedding_size, latent_size):
+    def __init__(self, hidden_size, latent_size):
         super(F_ca, self).__init__()
-        self.fc_mu = nn.Linear(embedding_size, latent_size)
-        self.fc_std = nn.Linear(embedding_size, latent_size)
+        self.fc_mu = nn.Linear(hidden_size *2, latent_size)
+        self.fc_std = nn.Linear(hidden_size *2, latent_size)
 
     def forward(self, e_input):
         mu = self.fc_mu(e_input)
@@ -166,6 +181,7 @@ class F_attn(nn.Module):
         e = e.transpose(1, 2) # (b, f, l)
 
         batch, ch, width, height = h.shape
+        # print('e', e.shape, 'h', h.shape)
         h = h.view(batch, ch, -1) # (b, f, n), flatten img features by subregions, n = wid * hei
         s = torch.bmm(e.transpose(1, 2), h)
         beta = F.softmax(s, dim=1) # (b, l, n), attention along word embeddings
@@ -252,7 +268,7 @@ class EB_Discriminator(nn.Module):
 
 
 class Discriminator(nn.Module):
-    def __init__(self, in_ch, num_downsample=4, embed_size=128, n_d=64, norm_mode='inst'):
+    def __init__(self, in_ch, num_downsample, embed_size, n_d=64, norm_mode='inst'):
         super(Discriminator, self).__init__()
         self.downsamples = nn.Sequential(*[DownsampleBlock(in_ch*2**i, in_ch*2**(i+1), norm_mode) for i in range(num_downsample)])
         if norm_mode == 'spectral':
@@ -264,7 +280,7 @@ class Discriminator(nn.Module):
         # self.fc_cond_1 = nn.Linear(2*embed_size, n_d)
         # self.fc_cond_2 = nn.Linear(4*4*8*n_d, n_d)
         # self.fc_cond_3 = nn.Linear(2*n_d, 1)
-        self.fc_cond = nn.Linear(embed_size*2, n_d)
+        self.fc_cond = nn.Linear(embed_size, n_d)
         self.conv_uncond = nn.Conv2d(8*n_d, 1, 1, 1, 0)
         self.conv_cond = nn.Conv2d(9*n_d, 1, 1, 1, 0)
     
@@ -293,9 +309,10 @@ class Matching_Score_word(nn.Module):
         self.gamma_1 = gamma_1
         self.gamma_2 = gamma_2
         self.gamma_3 = gamma_3
-        self.fc = nn.Linear(768, 128)
+        self.fc = nn.Linear(768, 256)
         
     def batch_score(self, e, v):
+        # print('e', e.shape, 'v', v.shape)
         s = torch.mm(e.t(), v) #(T, 289)
         s_norm = F.softmax(s, dim=1) #(T, 289) 
         alpha = F.softmax(self.gamma_1 * s_norm, dim=0)# (T, 289)
@@ -309,8 +326,9 @@ class Matching_Score_word(nn.Module):
         return match_score
 
     def forward(self, e, v):
+        # print(e.shape)
         v = self.fc(v.transpose(1, 2)).transpose(1, 2)
-        
+        # print(v.shape)
         batch_size = e.shape[0]
         batch_sum_score_d = torch.zeros(batch_size, device=device)
         batch_sum_score_q = torch.zeros(batch_size, device=device)
@@ -324,7 +342,7 @@ class Matching_Score_word(nn.Module):
 
 
 class Matching_Score_sent(nn.Module):
-    def __init__(self, gamma_3, embed_size=128):
+    def __init__(self, gamma_3, embed_size=256):
         super(Matching_Score_sent, self).__init__()
         self.cos = nn.CosineSimilarity(dim=0)
         self.gamma_3 = gamma_3
@@ -407,18 +425,19 @@ class AttnGAN(nn.Module):
     def __init__(self, embedding_size, latent_size, in_ch, vocab_size, hidden_size, num_layer, dropout):
         super(AttnGAN, self).__init__()
         self.Text_encoder = Text_encoder(vocab_size, embedding_size, hidden_size, num_layer, dropout)
-        self.F_ca = F_ca(embedding_size, latent_size)
+        self.F_ca = F_ca(hidden_size, hidden_size)
 
         self.F_0 = F_0(latent_size)
-        self.D_0 = Discriminator(in_ch, 4, norm_mode='batch') # for  64 by  64 output of stage 1
+        self.D_0 = Discriminator(in_ch, 4, hidden_size, norm_mode='batch') # for  64 by  64 output of stage 1
 
-        self.F_1_attn = F_attn(embedding_size, hidden_size)
+        self.F_1_attn = F_attn(hidden_size *2, 64)
         self.F_1 = F_i(latent_size)
-        self.D_1 = Discriminator(in_ch, 5, norm_mode='batch') # for 128 by 128 output of stage 2
+        self.D_1 = Discriminator(in_ch, 5, hidden_size, norm_mode='batch') # for 128 by 128 output of stage 2
 
-        self.F_2_attn = F_attn(embedding_size, hidden_size)
+        self.F_2_attn = F_attn(hidden_size*2, 64)
         self.F_2 = F_i(latent_size)
-        self.D_2 = Discriminator(in_ch, 6, norm_mode='batch') # for 256 by 256 output of stage 3
+        self.D_2 = Discriminator(in_ch, 6, hidden_size, norm_mode='batch') # for 256 by 256 output of stage 3
+        
         self.image_encoder = Image_encoder(embedding_size) 
         # self.matching_score_word = Matching_Score_word(5, 5, 10)
         # self.matching_score_sent = Matching_Score_sent(10)
@@ -438,8 +457,11 @@ class AttnGAN(nn.Module):
         return fake_images, cond, mu, std
         
     def prepare_inputs(self, text_label):
-        text_embedded = self.Text_encoder(text_label)
-        sen_feature = torch.mean(text_embedded, dim=1)
+        text_embedded, sen_feature = self.Text_encoder(text_label)
+        # print('text', text_embedded.shape)
+        # print('text_encoder', text_embedded.shape)
+        # sen_feature = torch.mean(text_embedded, dim=1)
+        # print('sen_feature', sen_feature.shape)
         mu, std, cond = self.F_ca(sen_feature)
 
         random_noise = torch.randn_like(cond)

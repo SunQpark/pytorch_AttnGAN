@@ -6,6 +6,7 @@ from base import BaseTrainer
 from torchvision import transforms
 from model.model import Matching_Score_word, Matching_Score_sent
 import torch.nn.functional as F
+import os 
 
 class Trainer(BaseTrainer):
     """
@@ -30,6 +31,7 @@ class Trainer(BaseTrainer):
         self.index2word = {v:k for k, v in word2index.items()}
         self.index2word[1] = ''
         self.index2word[0] = ''
+        self.damsm_pretrain(32)
 
     def decode_sentence(self, index_tensor):
         index_tensor = index_tensor.cpu()
@@ -58,6 +60,49 @@ class Trainer(BaseTrainer):
     def reshape_output(self, image_batch):
         result = F.adaptive_avg_pool2d(image_batch, 80)
         return result
+    
+    def count_parameters(self, model):
+        return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+    def damsm_pretrain(self, epoch):
+        train_iter = 0
+        self.model.train()
+        self.model.to(self.device)
+        if os.path.isfile('saved/runs/pretrain/text_encoder6.pt'):
+            self.load_checkpoint(6)
+        for i in range(epoch):
+            for batch_idx, (data, text) in enumerate(self.data_loader):
+                data = data[2].to(self.device)
+                text_embedded, sen_feature, _, _, _, _= self.model.prepare_inputs(text)
+                matching_score_word = Matching_Score_word(5, 5, 10).to(self.device)
+                matching_score_sent = Matching_Score_sent(10).to(self.device)
+                # print(self.count_parameters(self.model.image_encoder))
+                update_targets = ['Text_encoder']
+                self.init_optims(update_targets)
+                reshaped_output = self.reshape_output(data)
+
+                local_feature, global_feature = self.model.image_encoder(reshaped_output)
+                word_score_1, word_score_2 = matching_score_word(text_embedded, local_feature)
+                sent_score_1, sent_score_2 = matching_score_sent(sen_feature, global_feature)
+                loss_damsm = self.damsm_loss(word_score_1, 10) + self.damsm_loss(word_score_2, 10) + self.damsm_loss(sent_score_1, 10) + self.damsm_loss(sent_score_2, 10)
+                loss_damsm.backward(retain_graph=True)
+                torch.nn.utils.clip_grad_norm(self.model.Text_encoder.parameters(), 0.25)
+                self.step_optims(update_targets)
+                train_iter += 1
+                self.writer.add_scalar(f'{self.training_name}/pretrain/damsm_loss', loss_damsm.item()/self.batch_size, train_iter)
+                log_step = int(np.sqrt(self.batch_size))
+                if self.verbosity >= 2 and batch_idx % log_step == 0:
+                    self.logger.info('pre_Train Epoch: {} [{}/{} ({:.0f}%)] Loss: {:.6f}'.format(
+                        i+1, batch_idx * self.batch_size, len(self.data_loader) * self.batch_size,
+                        100.0 * batch_idx / len(self.data_loader), loss_damsm/self.batch_size))
+            if os.path.isfile('saved/runs/pretrain/text_encoder6.pt'):
+                torch.save(self.model.Text_encoder.state_dict(), f'saved/runs/pretrain/text_encoder{i+7}.pt')
+                print('saved text encoder!')
+    
+    def load_checkpoint(self, epoch):
+        state_dict = torch.load(f'saved/runs/pretrain/text_encoder{epoch}.pt')
+        self.model.Text_encoder.load_state_dict(state_dict)
+        print('load pretrained text encoder')
         
     def _train_epoch(self, epoch):
         """
@@ -79,12 +124,14 @@ class Trainer(BaseTrainer):
         total_loss = 0
         total_metrics = np.zeros(len(self.metrics))
         for batch_idx, (data, text) in enumerate(self.data_loader):
+            pretrain_epoch = 32
+            self.load_checkpoint(pretrain_epoch)
+
             real_label = 1
             fake_label = 0
             
             data = [d.to(self.device) for d in data]
-
-            text_embedded, z_input, cond, mu, std, sen_feature = self.model.prepare_inputs(text)
+            text_embedded, sen_feature, z_input, cond, mu, std = self.model.prepare_inputs(text)
             
             # train F_ca according to mu, std
             self.init_optims('F_ca')
@@ -124,10 +171,10 @@ class Trainer(BaseTrainer):
                 loss_G = errG_0.item()
                 loss = loss_G + loss_D       
 
-                self.writer.add_scalar(f'{self.training_name}/Train/global/D_loss_real', errD_real_0.item(), self.train_iter)
-                self.writer.add_scalar(f'{self.training_name}/Train/global/F_ca_loss', loss_F_ca.item(), self.train_iter)
-                self.writer.add_scalar(f'{self.training_name}/Train/stage0/D_loss_fake', errD_fake_0.item(), self.train_iter)
-                self.writer.add_scalar(f'{self.training_name}/Train/stage0/G_loss', errG_0.item(), self.train_iter)
+                self.writer.add_scalar(f'{self.training_name}/Train/global/D_loss_real', errD_real_0.item()/self.batch_size, self.train_iter)
+                self.writer.add_scalar(f'{self.training_name}/Train/global/F_ca_loss', loss_F_ca.item()/self.batch_size, self.train_iter)
+                self.writer.add_scalar(f'{self.training_name}/Train/stage0/D_loss_fake', errD_fake_0.item()/self.batch_size, self.train_iter)
+                self.writer.add_scalar(f'{self.training_name}/Train/stage0/G_loss', errG_0.item()/self.batch_size, self.train_iter)
                 if self.train_iter % 20 == 0:
                     self.writer.add_image('image/generated_0', make_grid(fake_x_0[:16], normalize=True, nrow=4), self.train_iter)
 
@@ -182,46 +229,46 @@ class Trainer(BaseTrainer):
                 matching_score_word = Matching_Score_word(5, 5, 10).to(self.device)
                 matching_score_sent = Matching_Score_sent(10).to(self.device)
                 
-                # update_targets = ['Image_encoder', 'Text_encoder']
+                update_targets = ['Text_encoder']
                 # self.init_optims(update_targets)
                 reshaped_output = self.reshape_output(fake_x_2)
                 local_feature, global_feature = self.model.image_encoder(reshaped_output)
                 # b, c, _, _ = local_feature.shape
                 # print(type(global_feature))
-                local_feature = local_feature.to(self.device)
+                # local_feature = local_feature.to(self.device)
                 # print(local_feature)
                 word_score_1, word_score_2 = matching_score_word(text_embedded, local_feature)
                 sent_score_1, sent_score_2 = matching_score_sent(sen_feature, global_feature)
                 loss_damsm = self.damsm_loss(word_score_1, 10) + self.damsm_loss(word_score_2, 10) + self.damsm_loss(sent_score_1, 10) + self.damsm_loss(sent_score_2, 10)
                 loss_damsm.backward(retain_graph=True)
-                
+                self.step_optims(update_targets)
 
                 loss_D = errD_fake_0.item() + errD_fake_1.item() + errD_fake_2.item() + errD_real_0.item() + errD_real.item()
                 loss_G = errG_0.item() + errG_1.item() + errG_2.item()
                 loss = loss_G + loss_D
                 
 
-                self.writer.add_scalar(f'{self.training_name}/Train/stage1/D_loss_fake', errD_fake_1.item(), self.train_iter)
-                self.writer.add_scalar(f'{self.training_name}/Train/stage2/D_loss_fake', errD_fake_2.item(), self.train_iter)
-                self.writer.add_scalar(f'{self.training_name}/Train/stage2/D_loss_real', errD_real.item(), self.train_iter)
+                self.writer.add_scalar(f'{self.training_name}/Train/stage1/D_loss_fake', errD_fake_1.item()/self.batch_size, self.train_iter)
+                self.writer.add_scalar(f'{self.training_name}/Train/stage2/D_loss_fake', errD_fake_2.item()/self.batch_size, self.train_iter)
+                self.writer.add_scalar(f'{self.training_name}/Train/stage2/D_loss_real', errD_real.item()/self.batch_size, self.train_iter)
 
-                self.writer.add_scalar(f'{self.training_name}/Train/stage1/G_loss', errG_1.item(), self.train_iter)
-                self.writer.add_scalar(f'{self.training_name}/Train/stage2/G_loss', errG_2.item(), self.train_iter)
+                self.writer.add_scalar(f'{self.training_name}/Train/stage1/G_loss', errG_1.item()/self.batch_size, self.train_iter)
+                self.writer.add_scalar(f'{self.training_name}/Train/stage2/G_loss', errG_2.item()/self.batch_size, self.train_iter)
                 
-                self.writer.add_scalar(f'{self.training_name}/Train/stage3/damsm_loss', loss_damsm.item(), self.train_iter)
+                self.writer.add_scalar(f'{self.training_name}/Train/stage3/damsm_loss', loss_damsm.item()/self.batch_size, self.train_iter)
 
                 if self.train_iter % 20 == 0:
                     self.writer.add_image('image/generated_0', make_grid(fake_x_0, normalize=True, nrow=4), self.train_iter)
                     self.writer.add_image('image/generated_1', make_grid(fake_x_1, normalize=True, nrow=4), self.train_iter)
                     self.writer.add_image('image/generated_2', make_grid(fake_x_2, normalize=True, nrow=4), self.train_iter)
                     self.writer.add_text('text', self.decode_sentence(text), self.train_iter)
-
+            # print('data', len(data), 'data_loader', len(self.data_loader))
             total_loss += loss
             log_step = int(np.sqrt(self.batch_size))
             if self.verbosity >= 2 and batch_idx % log_step == 0:
                 self.logger.info('Train Epoch: {} [{}/{} ({:.0f}%)] Loss: {:.6f}'.format(
-                    epoch, batch_idx * len(data), len(self.data_loader) * len(data),
-                    100.0 * batch_idx / len(self.data_loader), loss))
+                    epoch, batch_idx * self.batch_size, len(self.data_loader) * self.batch_size,
+                    100.0 * batch_idx / len(self.data_loader), loss/self.batch_size))
 
         avg_loss = total_loss / len(self.data_loader)
         avg_metrics = (total_metrics / len(self.data_loader)).tolist()
