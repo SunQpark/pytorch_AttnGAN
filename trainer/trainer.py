@@ -30,7 +30,9 @@ class Trainer(BaseTrainer):
         self.index2word = {v:k for k, v in word2index.items()}
         self.index2word[1] = ''
         self.index2word[0] = ''
-        self.damsm_pretrain(256)
+        # self.damsm_pretrain(12)
+        # pretrain_epoch = 1
+        self.load_checkpoint(1)
 
     def decode_sentence(self, index_tensor):
         index_tensor = index_tensor.cpu()
@@ -92,9 +94,9 @@ class Trainer(BaseTrainer):
                     self.logger.info('pre_Train Epoch: {} [{}/{} ({:.0f}%)] Loss: {:.6f}'.format(
                         i+1, batch_idx * self.batch_size, len(self.data_loader) * self.batch_size,
                         100.0 * batch_idx / len(self.data_loader), loss_damsm/self.batch_size))
-            if os.path.isfile('saved/runs/pretrain/text_encoder32.pt'):
-                torch.save(self.model.Text_encoder.state_dict(), f'saved/runs/pretrain/text_encoder{i+33}.pt')
-                print('saved text encoder!')
+            # if os.path.isfile('saved/runs/pretrain/text_encoder32.pt'):
+            torch.save(self.model.Text_encoder.state_dict(), f'saved/runs/pretrain/text_encoder{i+1}.pt')
+            print('saved text encoder!')
     
     def load_checkpoint(self, epoch):
         state_dict = torch.load(f'saved/runs/pretrain/text_encoder{epoch}.pt')
@@ -118,12 +120,10 @@ class Trainer(BaseTrainer):
         self.model.train()
         self.model.to(self.device)
 
+
         total_loss = 0
         total_metrics = np.zeros(len(self.metrics))
         for batch_idx, (data, text) in enumerate(self.data_loader):
-            pretrain_epoch = 32
-            self.load_checkpoint(pretrain_epoch)
-
             real_label = 1
             fake_label = 0
             
