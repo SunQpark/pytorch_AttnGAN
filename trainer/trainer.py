@@ -4,7 +4,6 @@ from torch.nn.utils.rnn import pad_packed_sequence
 from torchvision.utils import make_grid
 from base import BaseTrainer
 from torchvision import transforms
-from model.model import Matching_Score_word, Matching_Score_sent
 import torch.nn.functional as F
 import os 
 
@@ -74,16 +73,14 @@ class Trainer(BaseTrainer):
             for batch_idx, (data, text) in enumerate(self.data_loader):
                 data = data[2].to(self.device)
                 text_embedded, sen_feature, _, _, _, _= self.model.prepare_inputs(text)
-                matching_score_word = Matching_Score_word(5, 5, 10).to(self.device)
-                matching_score_sent = Matching_Score_sent(10).to(self.device)
                 # print(self.count_parameters(self.model.image_encoder))
                 update_targets = ['Text_encoder']
                 self.init_optims(update_targets)
                 reshaped_output = self.reshape_output(data)
 
                 local_feature, global_feature = self.model.image_encoder(reshaped_output)
-                word_score_1, word_score_2 = matching_score_word(text_embedded, local_feature)
-                sent_score_1, sent_score_2 = matching_score_sent(sen_feature, global_feature)
+                word_score_1, word_score_2 = self.model.matching_score_word(text_embedded, local_feature)
+                sent_score_1, sent_score_2 = self.model.matching_score_sent(sen_feature, global_feature)
                 loss_damsm = self.damsm_loss(word_score_1, 10) + self.damsm_loss(word_score_2, 10) + self.damsm_loss(sent_score_1, 10) + self.damsm_loss(sent_score_2, 10)
                 loss_damsm.backward(retain_graph=True)
                 torch.nn.utils.clip_grad_norm(self.model.Text_encoder.parameters(), 0.25)
@@ -225,9 +222,6 @@ class Trainer(BaseTrainer):
                 errG_2 = self.loss(score_fake_2, real_label)
                 errG_2.backward(retain_graph=True)
                 self.step_optims(update_targets)
-
-                matching_score_word = Matching_Score_word(5, 5, 10).to(self.device)
-                matching_score_sent = Matching_Score_sent(10).to(self.device)
                 
                 update_targets = ['Text_encoder']
                 # self.init_optims(update_targets)
@@ -237,8 +231,8 @@ class Trainer(BaseTrainer):
                 # print(type(global_feature))
                 # local_feature = local_feature.to(self.device)
                 # print(local_feature)
-                word_score_1, word_score_2 = matching_score_word(text_embedded, local_feature)
-                sent_score_1, sent_score_2 = matching_score_sent(sen_feature, global_feature)
+                word_score_1, word_score_2 = self.model.matching_score_word(text_embedded, local_feature)
+                sent_score_1, sent_score_2 = self.model.matching_score_sent(sen_feature, global_feature)
                 loss_damsm = self.damsm_loss(word_score_1, 10) + self.damsm_loss(word_score_2, 10) + self.damsm_loss(sent_score_1, 10) + self.damsm_loss(sent_score_2, 10)
                 loss_damsm.backward(retain_graph=True)
                 self.step_optims(update_targets)

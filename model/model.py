@@ -438,8 +438,8 @@ class AttnGAN(nn.Module):
         self.D_2 = Discriminator(in_ch, 6, hidden_size, norm_mode='batch') # for 256 by 256 output of stage 3
         
         self.image_encoder = Image_encoder(embedding_size) 
-        # self.matching_score_word = Matching_Score_word(5, 5, 10)
-        # self.matching_score_sent = Matching_Score_sent(10)
+        self.matching_score_word = Matching_Score_word(5, 5, 10)
+        self.matching_score_sent = Matching_Score_sent(10)
         
     def forward(self, label):
         text_embedded, sen_feature, z_input, cond, mu, std = self.prepare_inputs(label)
