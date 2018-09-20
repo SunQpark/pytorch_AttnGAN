@@ -31,7 +31,7 @@ class Trainer(BaseTrainer):
         self.index2word = {v:k for k, v in word2index.items()}
         self.index2word[1] = ''
         self.index2word[0] = ''
-        self.damsm_pretrain(32)
+        self.damsm_pretrain(256)
 
     def decode_sentence(self, index_tensor):
         index_tensor = index_tensor.cpu()
@@ -68,8 +68,8 @@ class Trainer(BaseTrainer):
         train_iter = 0
         self.model.train()
         self.model.to(self.device)
-        if os.path.isfile('saved/runs/pretrain/text_encoder6.pt'):
-            self.load_checkpoint(6)
+        if os.path.isfile('saved/runs/pretrain/text_encoder32.pt'):
+            self.load_checkpoint(32)
         for i in range(epoch):
             for batch_idx, (data, text) in enumerate(self.data_loader):
                 data = data[2].to(self.device)
@@ -95,8 +95,8 @@ class Trainer(BaseTrainer):
                     self.logger.info('pre_Train Epoch: {} [{}/{} ({:.0f}%)] Loss: {:.6f}'.format(
                         i+1, batch_idx * self.batch_size, len(self.data_loader) * self.batch_size,
                         100.0 * batch_idx / len(self.data_loader), loss_damsm/self.batch_size))
-            if os.path.isfile('saved/runs/pretrain/text_encoder6.pt'):
-                torch.save(self.model.Text_encoder.state_dict(), f'saved/runs/pretrain/text_encoder{i+7}.pt')
+            if os.path.isfile('saved/runs/pretrain/text_encoder32.pt'):
+                torch.save(self.model.Text_encoder.state_dict(), f'saved/runs/pretrain/text_encoder{i+33}.pt')
                 print('saved text encoder!')
     
     def load_checkpoint(self, epoch):

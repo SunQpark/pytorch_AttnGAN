@@ -91,7 +91,6 @@ class Text_encoder(nn.Module):
         output, _ = pad_packed_sequence(output)
         word_emb = output.t()
         sent_emb = hidden[0].transpose(0,1).contiguous()
-        # print('sent_emb', sent_emb.shape)
         sent_emb = sent_emb.view(-1, self.hidden_size * 2)
         return word_emb, sent_emb
 
